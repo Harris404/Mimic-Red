@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-DrissionPage 版小红书批量爬虫 (纯净模拟版)
+DrissionPage 版小红书批量爬虫 (多格式存储版)
 核心策略：移除所有 API 监听 (降低特征) -> 纯 DOM 交互 (点击/滚动) -> 被动 SSR/DOM 提取
+支持存储格式：CSV、JSON、Excel、SQLite
 """
 import sys
 import time
@@ -16,27 +17,21 @@ from typing import List, Dict, Optional
 from loguru import logger
 from DrissionPage import ChromiumPage, ChromiumOptions
 
-# 复用现有的工具类
+# 导入新的存储管理器
 try:
-    from xhs_utils.note_manager import NoteManager
-    from xhs_utils.rag_util import aggregate_comments_text
+    from xhs_utils.storage_manager import StorageManager
 except ImportError as e:
     logger.error(f"导入依赖失败: {e}")
     sys.exit(1)
 
 class DataDeduplicator:
-    def __init__(self, db_path: str = None):
+    def __init__(self, storage_manager: StorageManager = None):
         self.seen_note_ids = set()
-        if db_path and os.path.exists(db_path):
+        if storage_manager:
             try:
-                import sqlite3
-                conn = sqlite3.connect(db_path)
-                cursor = conn.execute("SELECT note_id FROM notes")
-                for row in cursor:
-                    if row[0]:
-                        self.seen_note_ids.add(row[0])
-                conn.close()
-                logger.info(f"   ✅ 已加载 {len(self.seen_note_ids)} 个历史笔记ID用于去重")
+                self.seen_note_ids = storage_manager.get_seen_note_ids()
+                if self.seen_note_ids:
+                    logger.info(f"   ✅ 已加载 {len(self.seen_note_ids)} 个历史笔记ID用于去重")
             except Exception as e:
                 logger.debug(f"加载历史笔记ID失败: {e}")
     
@@ -49,24 +44,19 @@ class DataDeduplicator:
 import re
 
 class DrissionXHSSpider:
-    def __init__(self, db_path: str = "datas/notes.db", takeover: bool = True):
-        self.db_path = db_path
+    def __init__(self, storage_type: str = "sqlite", output_dir: str = "datas", takeover: bool = True):
+        self.storage_type = storage_type
+        self.output_dir = output_dir
         self.takeover = takeover
         self.page = None
-        self.note_db = None
-        self.deduplicator = DataDeduplicator(db_path)
+        self.storage = None
+        self.deduplicator = None
         self.stats = {"total_notes": 0, "failed_keywords": 0, "start_time": None}
         
         # 反爬控制
         self._consecutive_failures = 0
         self._request_count = 0
         self._blocked_count = 0
-        
-        try:
-            from keywords.keyword_manager import KeywordManager
-            self.keyword_db = KeywordManager("datas/keywords.db")
-        except:
-            self.keyword_db = None
 
     def init_browser(self):
         """初始化浏览器"""
@@ -88,10 +78,12 @@ class DrissionXHSSpider:
             sys.exit(1)
         
         try:
-            self.note_db = NoteManager(self.db_path)
-            logger.info(f"   ✅ 数据库已连接")
+            self.storage = StorageManager(self.storage_type, self.output_dir)
+            self.deduplicator = DataDeduplicator(self.storage)
+            logger.info(f"   ✅ 存储管理器已初始化 ({self.storage_type.upper()})")
         except Exception as e:
-            logger.error(f"   ❌ 数据库失败: {e}")
+            logger.error(f"   ❌ 存储管理器初始化失败: {e}")
+
 
     def _warmup_session(self):
         """
@@ -816,7 +808,6 @@ class DrissionXHSSpider:
                     c['comment_id'] = f"{note_id}_{content_hash}"
         
         full_note['comments_data'] = comments
-        full_note['comments_text'] = aggregate_comments_text(comments)
         full_note['full_text'] = f"{full_note['title']} {full_note['desc']} {' '.join(full_note['tags'])}"
         
         return full_note
@@ -841,8 +832,8 @@ class DrissionXHSSpider:
         
         return text
 
-    def _to_db_note(self, note: Dict) -> Dict:
-        # 清洗 full_text 和 desc，利于 RAG 检索
+    def _to_storage_note(self, note: Dict) -> Dict:
+        """转换为标准存储格式"""
         clean_title = self._clean_text(note.get('title', ''))
         clean_desc = self._clean_text(note.get('desc', ''))
         clean_tags = [self._clean_text(t) for t in note.get('tags', [])]
@@ -854,7 +845,7 @@ class DrissionXHSSpider:
             'note_id': note.get('note_id', ''),
             'url': note.get('url', ''),
             'title': note.get('title', ''),
-            'desc': note.get('desc', ''),  # 原文保留（展示用）
+            'desc': note.get('desc', ''),
             'note_type': note.get('type', 'normal'),
             'author_name': note.get('author_name', ''),
             'author_id': note.get('author_id', ''),
@@ -865,8 +856,7 @@ class DrissionXHSSpider:
             'traffic_level': note.get('traffic_level', ''),
             'tags': note.get('tags', []),
             'upload_time': str(note.get('time', '')),
-            'full_text': full_text,  # 清洗后的文本（检索用）
-            'comments_text': self._clean_text(note.get('comments_text', '')),
+            'full_text': full_text,
             'keyword_source': note.get('keyword_source', '')
         }
 
@@ -964,19 +954,20 @@ class DrissionXHSSpider:
                     continue
                 
                 if full_note and self.note_db:
-                    # 最少点赞过滤（减少无效请求，提高 RAG 数据质量）
+                    # 最少点赞过滤（减少无效请求，提高storage:
+                    # 最少点赞过滤（减少无效请求）
                     liked = full_note.get('liked_count', 0)
                     if min_likes > 0 and liked < min_likes:
                         logger.debug(f"      ⏭️ 点赞{liked}<{min_likes}，跳过低互动笔记")
                         continue
                     
-                    # 记录关键词来源（RAG 分类用）
+                    # 记录关键词来源
                     full_note['keyword_source'] = kw
                     
-                    db_note = self._to_db_note(full_note)
-                    self.note_db.add_note(db_note)
+                    storage_note = self._to_storage_note(full_note)
+                    self.storage.add_note(storage_note)
                     if full_note.get('comments_data'):
-                        self.note_db.add_comments(full_note['note_id'], full_note['comments_data'])
+                        self.storage.add_comments(full_note['note_id'], full_note['comments_data'])
                     self.stats["total_notes"] += 1
                     daily_count += 1
                     kw_note_count += 1
@@ -999,9 +990,6 @@ class DrissionXHSSpider:
             done_keywords.add(kw)
             self._save_progress(done_keywords, daily_count)
             
-            if self.keyword_db:
-                self.keyword_db.update_after_crawl(kw, True, kw_note_count)
-            
             logger.info(f"   ✅ 关键词「{kw}」完成: 收录 {kw_note_count} 条")
             
             # 每 3 个关键词后额外休息
@@ -1011,7 +999,11 @@ class DrissionXHSSpider:
                 time.sleep(rest)
 
         self._print_stats(daily_count, daily_limit)
-
+# 完成存储（JSON/Excel 需要最终写入）
+        if self.storage:
+            self.storage.finalize()
+        
+        
     def _print_stats(self, daily_count: int = 0, daily_limit: int = 0):
         duration = (datetime.now() - self.stats["start_time"]).total_seconds()
         limit_info = f"  每日上限: {daily_count}/{daily_limit}\n" if daily_limit > 0 else ""
@@ -1027,26 +1019,27 @@ class DrissionXHSSpider:
         )
 
 def main():
-    parser = argparse.ArgumentParser(description='DrissionPage 小红书爬虫 (纯净版)')
+    parser = argparse.ArgumentParser(description='DrissionPage 小红书爬虫 (多格式存储版)')
     parser.add_argument('--keywords', '-k', nargs='+', help='关键词列表')
     parser.add_argument('--limit', '-l', type=int, default=20, help='每个关键词最多爬取数量')
     parser.add_argument('--daily-limit', '-d', type=int, default=0,
                         help='每日最多爬取总数（0=无限制，推荐 50-100）')
     parser.add_argument('--min-likes', type=int, default=0,
                         help='最少点赞数过滤（跳过低互动笔记，减少请求）')
+    parser.add_argument('--storage', '-s', type=str, default='sqlite',
+                        choices=['csv', 'json', 'excel', 'sqlite'],
+                        help='存储格式 (csv/json/excel/sqlite，默认: sqlite)')
+    parser.add_argument('--output', '-o', type=str, default='datas',
+                        help='输出目录（默认: datas）')
     parser.add_argument('--no-warmup', action='store_true', help='跳过会话预热')
     parser.add_argument('--no-shuffle', action='store_true', help='不打乱关键词顺序')
-    parser.add_argument('--db', action='store_true', help='从关键词数据库读取')
     args = parser.parse_args()
     
-    spider = DrissionXHSSpider()
+    spider = DrissionXHSSpider(storage_type=args.storage, output_dir=args.output)
     keywords = args.keywords if args.keywords else ["澳洲留学"]
-    if args.db:
-        try:
-            from keywords.keyword_manager import KeywordManager
-            km = KeywordManager("datas/keywords.db")
-            keywords = [r['keyword'] for r in km.get_keywords(status='pending', limit=100)]
-        except: pass
+    
+    logger.info(f"📦 存储格式: {args.storage.upper()}")
+    logger.info(f"📂 输出目录: {args.output}")
         
     spider.crawl(
         keywords, limit=args.limit,

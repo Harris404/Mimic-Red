@@ -5,14 +5,10 @@ requests
 httpx
 tenacity
 
-# 数据处理
-pandas
-openpyxl
-
-# RAG 向量检索
-sentence-transformers
-faiss-cpu
-numpy
+# 数据处理与导出
+pandas          # Excel 格式支持
+openpyxl        # Excel 文件操作
+numpy          # 数据处理
 
 # 工具库
 python-dotenv
