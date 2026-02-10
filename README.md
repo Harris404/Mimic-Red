@@ -1,6 +1,4 @@
-# Mimic-Red (拟态红)
-
-**基于 DrissionPage 的小红书批量数据采集引擎（拟人化/防反爬版）**
+# Mimic-Red 
 
 ![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.10+-green.svg)
@@ -10,7 +8,7 @@
 
 ## 📖 项目简介
 
-**Mimic-Red** (原 Spider-XHS) 是一款针对小红书网页版的高性能、低风险数据采集工具。
+**Mimic-Red** 是一款针对小红书网页版的高性能、低风险数据采集工具。
 
 与传统的 `Playwright/Selenium` 自动化方案或 `Requests` 纯协议逆向方案不同，**Mimic-Red** 采用 **CDP (Chrome DevTools Protocol)** 接管真实浏览器，通过 **DOM 交互** 和 **SSR (Server-Side Rendering) 数据提取** 技术，实现对小红书数据的无感采集。
 
