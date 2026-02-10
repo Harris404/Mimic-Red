@@ -68,6 +68,11 @@ chmod +x start_chrome.sh
 
 > **⚠️ 注意**：启动后，请在浏览器中打开 `https://www.xiaohongshu.com` 并扫码登录。登录成功后，**不要关闭浏览器窗口**。
 
+> **🍪 Cookie 说明**：
+> - 本项目使用 CDP 协议接管浏览器，会自动从浏览器会话中获取 Cookie，**无需手动配置** `cookies_fresh.json` 文件。
+> - `cookies_fresh.json` 文件仅作为示例模板，实际运行时会自动从已登录的 Chrome 浏览器中读取认证信息。
+> - 请勿将真实的 Cookie 文件上传到 GitHub，已通过 `.gitignore` 规则排除。
+
 ### 3. 运行爬虫
 
 ```bash

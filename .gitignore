@@ -29,3 +29,11 @@ ENV/
 env.bak/
 venv.bak/
 
+# Cookie 文件 - 包含敏感信息
+cookies*.json
+
+# 数据文件
+datas/*.db
+datas/crawl_progress.json
+datas/reports/
+
