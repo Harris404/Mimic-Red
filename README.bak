@@ -1,0 +1,794 @@
+# 🕷️ Spider_XHS - 小红书澳洲数据智能采集系统（DrissionPage 版）
+
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+[![DrissionPage](https://img.shields.io/badge/DrissionPage-4.1+-green.svg)](https://drissionpage.cn/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+> 基于 DrissionPage 浏览器接管 + RAG（检索增强生成）架构的小红书澳洲留学/生活数据采集与智能问答系统
+
+## 🌟 核心特性
+
+### 1️⃣ DrissionPage 浏览器接管 🆕
+- ✅ **接管真实浏览器**：连接用户手动登录的 Chrome，完全绕过 Cookie 过期问题
+- ✅ **无 WebDriver 特征**：原生 CDP 协议，无自动化痕迹
+- ✅ **SSR + DOM 双通道**：从 `__INITIAL_STATE__` 和页面 DOM 双重提取数据
+- ✅ **点击式详情获取**：模拟真人点击笔记卡片，SPA 侧边栏提取详情
+- ✅ **反检测注入**：自动移除 `navigator.webdriver`，伪装真实用户
+- ✅ **智能去重**：启动时预加载全部历史 note_id，批量去重
+
+### 2️⃣ 动态关键词管理
+- ✅ **自动播种**：DB 为空时自动从配置导入 150+ 基础关键词
+- ✅ **生命周期追踪**：记录每个关键词的爬取次数、成功率、最后爬取时间
+- ✅ **状态管理**：pending（待爬）、active（活跃）、exhausted（枯竭）三态流转
+- ✅ **标签发现**：爬取过程中自动提取标签，高频标签可自动提升为关键词
+
+### 3️⃣ 智能爬虫系统
+- ✅ **数据库去重**：预加载全部历史 note_id，避免重复抓取
+- ✅ **全量数据提取**：
+  - 笔记内容：标题、正文、标签、发布时间、IP位置
+  - 互动数据：点赞数、收藏数、评论数、分享数
+  - 评论数据：评论内容、作者、点赞数、创建时间、子评论
+- ✅ **RAG 友好格式**：自动聚合 `full_text`（标题+正文+标签）、`comments_text`（所有评论）
+- ✅ **批量存储**：笔记 + 评论自动入库（notes.db + comments 表）
+
+### 4️⃣ RAG 向量检索
+- ✅ **增量更新**：数据量 >1000 时自动启用增量向量化
+- ✅ **语义搜索**：基于 m3e-base 模型的语义检索
+- ✅ **Faiss 索引**：IVF 聚类索引，支持百万级向量
+- ✅ **多维过滤**：按城市/领域/流量层级精准筛选
+
+---
+
+## 📦 系统架构
+
+```
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        命令行交互层                               │
+│        python spider_drission_batch.py -k "关键词" -l 20        │
+└───────────────────────┬─────────────────────────────────────────┘
+                        │
+                        ▼
+        ┌────────────────────────────────────┐
+        │     DrissionPage 浏览器接管         │
+        │   连接到 127.0.0.1:9222 (CDP)      │
+        │   用户已手动登录，无需 Cookie       │
+        └────────────────┬───────────────────┘
+                         │
+        ┌────────────────┼────────────────┐
+        ▼                ▼                ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────┐
+│ SSR 数据提取  │  │  DOM 提取     │  │ 关键词   │
+│ __INITIAL_   │  │  CSS选择器    │  │ 管理     │
+│ STATE__      │  │  JS提取       │  │ keyword_ │
+└──────┬───────┘  └──────┬───────┘  └────┬─────┘
+       └──────────────────┼─────────────┬─┘
+                          ▼             │
+        ┌────────────────────────────────────┐
+        │         SQLite 数据库层             │
+        │ keywords.db (词库) | notes.db (笔记)│
+        │ notes 表 + comments 表              │
+        └────────────────┬───────────────────┘
+                         │ export_to_jsonl()
+                         ▼
+                 ┌──────────────┐
+                 │ Faiss 向量库  │      ┌──────────────┐
+                 │  ./faiss_db/  │◄─────│ RAG 向量检索  │
+                 │  (IVF 索引)   │      │ vector_search │
+                 └──────────────┘      └──────────────┘
+```
+
+**核心流程：**
+1. 用户启动 Chrome + 手动登录小红书
+2. DrissionPage 接管浏览器（通过 CDP 协议）
+3. 自动搜索关键词，提取笔记列表
+4. 点击笔记卡片，提取详情（SSR + DOM）
+5. 数据存入 SQLite（notes.db）
+6. 导出 JSONL → 构建 Faiss 向量库
+7. 支持语义检索
+
+---
+
+## 🚀 快速开始
+
+### 环境要求
+- Python 3.10+
+- Google Chrome 浏览器（系统已安装）
+- 小红书账号（需在 Chrome 中手动登录）
+
+### 1. 安装依赖
+
+```bash
+# 克隆项目
+git clone https://github.com/yourusername/Spider_XHS.git
+cd Spider_XHS
+
+# 创建虚拟环境
+python3 -m venv .venv
+source .venv/bin/activate  # macOS/Linux
+# .venv\Scripts\activate  # Windows
+
+# 安装依赖
+pip install -r requirements.txt
+```
+
+**核心依赖：**
+```
+DrissionPage>=4.1.0     # 浏览器自动化（核心）
+loguru                  # 日志
+openpyxl                # Excel导出
+pandas                  # 数据处理
+jieba                   # 中文分词
+sentence-transformers   # 向量模型
+faiss-cpu               # 向量检索
+numpy                   # 数值计算
+```
+
+### 2. 启动 Chrome 远程调试模式
+
+**DrissionPage 通过接管浏览器工作，需要先启动 Chrome 的远程调试端口：**
+
+#### macOS:
+```bash
+# 方式1：使用提供的脚本
+./start_chrome.sh
+
+# 方式2：手动启动
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/.chrome-debug-profile" \
+  --no-first-run \
+  "https://www.xiaohongshu.com" &
+```
+
+#### Windows:
+```cmd
+"C:\Program Files\Google\Chrome\Application\chrome.exe" ^
+  --remote-debugging-port=9222 ^
+  --user-data-dir="%USERPROFILE%\.chrome-debug-profile" ^
+  --no-first-run ^
+  "https://www.xiaohongshu.com"
+```
+
+#### Linux:
+```bash
+google-chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/.chrome-debug-profile" \
+  --no-first-run \
+  "https://www.xiaohongshu.com" &
+```
+
+**参数说明：**
+- `--remote-debugging-port=9222`：开启 CDP 协议端口，供 DrissionPage 连接
+- `--user-data-dir`：使用独立用户数据目录，保存登录状态
+- `--no-first-run`：跳过首次启动向导
+
+### 3. 手动登录小红书
+
+**在刚才打开的 Chrome 窗口中：**
+1. 点击右上角「登录」
+2. 扫码或账号密码登录
+3. 登录成功后，**保持浏览器开启**
+4. （可选）手动搜索一次关键词，确认能看到搜索结果
+
+### 4. 自动播种关键词库
+
+**无需手动初始化！** 首次运行爬虫时会自动从 `config/australia_keywords.py` 播种 150+ 基础关键词。
+
+```bash
+# 查看系统状态
+python spider_drission_batch.py --db --limit 1
+# 输出：🌱 已加载 0 个历史笔记ID
+#      🚀 尝试接管已打开的 Chrome 浏览器...
+#      ✅ 成功接管浏览器
+#      ✅ 登录状态正常
+```
+
+---
+
+## 💻 使用指南
+
+### 基础爬取模式
+
+#### 1. 单关键词爬取
+```bash
+# 爬取指定关键词（自动搜索并提取）
+python spider_drission_batch.py -k "澳洲留学" -l 10
+
+# 多个关键词
+python spider_drission_batch.py -k "澳洲留学" "澳洲生活" "悉尼租房" -l 20
+```
+
+#### 2. 从数据库批量爬取（推荐 ⭐）
+```bash
+# 爬取关键词数据库中的待爬关键词
+python spider_drission_batch.py --db -l 50
+
+# 指定爬取数量
+python spider_drission_batch.py --db --limit 100
+```
+
+#### 3. 仅搜索模式（不获取详情，速度快）
+```bash
+# 只收集笔记列表，不进详情页
+python spider_drission_batch.py -k "澳洲留学" -l 50 -s
+python spider_drission_batch.py --db -l 100 --search-only
+```
+
+### 🔧 高级选项
+
+#### 无头模式
+```bash
+# 后台运行，不显示浏览器窗口
+python spider_drission_batch.py --db -l 50 --headless
+```
+
+#### 使用旧的 Cookie 模式（不推荐）
+```bash
+# 不接管浏览器，使用 cookies_fresh.json
+python spider_drission_batch.py -k "澳洲留学" -l 10 --no-takeover
+```
+
+**注意**：不接管模式需要 `cookies_fresh.json` 文件，且容易遇到 Cookie 过期问题。
+
+### 📊 查看系统状态
+
+```bash
+# 查看数据库统计
+sqlite3 datas/notes.db "SELECT COUNT(*) FROM notes"
+sqlite3 datas/keywords.db "SELECT status, COUNT(*) FROM keywords GROUP BY status"
+
+# 查看最新收录的笔记
+sqlite3 datas/notes.db "SELECT title, author_name, liked_count FROM notes ORDER BY created_at DESC LIMIT 10"
+```
+
+### 📌 关键词管理
+- **智能逻辑**：
+  1. 如果 DB 为空 → 自动播种 150+ 基础关键词
+  2. 取出 `status='pending'` 的关键词（按质量分排序）
+  3. 如果发现 `source='manual'` 的新词 → **自动先拓展再爬取**
+  4. 开始爬取
+- **推荐场景**：日常维护、增量爬取
+
+#### 方式2：按城市维度爬取
+```bash
+python run.py --spider --mode city
+```
+- 爬取：悉尼、墨尔本、布里斯班、珀斯、阿德莱德、堪培拉
+
+
+#### 添加自定义关键词
+```python
+from keywords.keyword_manager import KeywordManager
+
+km = KeywordManager("datas/keywords.db")
+
+# 添加单个关键词
+km.add_keyword(
+    keyword="墨尔本咖啡馆",
+    source="manual",
+    status="pending"
+)
+
+# 批量添加
+keywords = ["悉尼大学", "UNSW", "UQ校园生活"]
+for kw in keywords:
+    km.add_keyword(keyword=kw, source="manual")
+```
+
+#### 查看关键词统计
+```bash
+sqlite3 datas/keywords.db "SELECT status, COUNT(*) FROM keywords GROUP BY status"
+# 输出：
+# pending|156    # 待爬取
+# active|23      # 活跃
+# exhausted|5    # 已枯竭
+```
+
+---
+
+### 🤖 RAG 向量检索
+
+#### 步骤1：构建向量库
+```bash
+python xhs_utils/vector_builder.py
+```
+
+**智能判断逻辑：**
+- 首次运行 → 全量构建
+- 数据量 >1000 且新增 <30% → **增量更新**（快10倍）
+- 数据量 >1000 且新增 ≥30% → 全量重建
+
+**输出示例：**
+```
+============================================================
+🚀 开始构建Faiss向量库
+============================================================
+📊 数据量: 1500 条，新增: 200 条
+✅ 采用增量更新策略
+
+📝 增量模式：导出 200 条未向量化笔记
+✅ 导出 200 条笔记到 datas/excel_datas/rag_documents/notes_rag_incremental_*.jsonl
+
+开始向量化...
+加载Embedding模型: moka-ai/m3e-base
+模型维度: 768
+🔄 检测到现有向量库，执行增量更新...
+📝 新增 200 条文档
+✅ 增量更新完成，总向量数: 1500
+
+============================================================
+✅ 向量库构建完成!
+============================================================
+总向量数: 1500
+新增向量: 200
+模型: moka-ai/m3e-base
+索引类型: IVF
+保存位置: ./faiss_db
+```
+
+#### 步骤2：语义搜索
+```bash
+python run.py --search "悉尼租房价格一个月多少钱"
+```
+
+**输出示例：**
+```（Playwright 版）
+
+```bash
+# 启动自动化调度器（前台运行，建议配合 screen/tmux）
+python automation.py
+```
+
+**调度计划：**
+```
+✅ 每日 02:00 - 关键词维护
+   - 提升高频标签为关键词
+   - 生成统计报告
+
+✅ 每日 03:00 - 数据爬取（Playwright）
+   - 从 DB 取 pending 关键词（--db 模式）
+   - 自动播种（如果 DB 为空）
+   - 自动拓展人为添加的新词
+   - Playwright 浏览器自动爬取
+
+✅ 每日 06:00 - RAG库更新
+   - 导出新数据（JSONL 格式）
+   - 增量/全量重建向量库
+
+**使用 macOS LaunchAgent 实现开机自启（可选）：**
+```bash
+# 复制提供的 plist 文件
+cp deploy/launchd/*.plist ~/Library/LaunchAgents/
+
+# 加载任务
+launchctl load ~/Library/LaunchAgents/com.spiderxhs.daily-crawl.plist
+```
+
+---
+
+## 📂 项目结构
+
+```
+Spider_XHS/
+├── 📄 spider_drission_batch.py        # 🌟 DrissionPage 爬虫引擎（核心）
+├── 📄 start_chrome.sh                 # Chrome 调试模式启动脚本
+├── 📄 requirements.txt                # 依赖清单
+├── 📄 README.md                       # 本文档
+│
+├── 📁 keywords/                       # 关键词管理系统
+│   ├── keyword_manager.py             # 数据库管理
+│   ├── keyword_discovery.py           # 标签发现
+│   └── keyword_lifecycle.py           # 生命周期管理
+│
+├── 📁 xhs_utils/                      # 工具模块
+│   ├── note_manager.py                # 笔记数据库管理
+│   ├── vector_builder.py              # 向量库构建（Faiss IVF）
+│   ├── vector_search.py               # 向量检索（语义搜索）
+│   ├── rag_util.py                    # RAG 数据处理
+│   ├── data_util.py                   # 数据处理工具
+│   └── common_util.py                 # 通用工具
+│
+├── 📁 config/                         # 配置文件
+│   └── australia_keywords.py          # 关键词库（150+ 词）
+│
+├── 📁 datas/                          # 数据目录
+│   ├── keywords.db                    # 关键词数据库
+│   ├── notes.db                       # 笔记数据库（notes + comments 表）
+│   └── excel_datas/                   
+│       └── rag_documents/             # RAG JSONL 导出目录
+│
+├── 📁 faiss_db/                       # Faiss 向量库
+│   ├── faiss.index                    # 向量索引
+│   ├── id_map.pkl                     # ID 映射
+│   └── metadata.pkl                   # 元数据
+│
+└── 📁 logs/                           # 日志目recording
+    └── spider_*.log                   # 爬虫日志（按天滚动）
+├── 📁 config/                         # 配置文件
+│   └── australia_keywords.py          # 关键词矩阵配置
+│
+├── 📁 datas/                          # 数据目录
+│   ├── keywords.db                    # 关键词数据库（150词）
+│   ├── notes.db                       # 笔记数据库
+│   ├── excel_datas/                   # Excel导出目录
+│   └── media_datas/                   # 媒体文件目录
+│
+├── 📁 faiss_db/                       # Faiss 向量库
+│   ├── faiss.index                    # 向量索引
+│   ├── id_map.pkl                     # ID映射
+│   └── metadata.pkl                   # 元数据
+│
+└── 📁 logs/                           # 日志目录
+    ├── spider_*.log                   # 爬虫日志
+    ├── scheduler.log                  # 调度器日志
+    └── automation.log                 # 自动化日志
+```
+
+---
+
+## 🔧 高级配置
+
+### 调整爬虫参数
+
+编辑 `config/australia_keywords.py`：
+
+```python
+CRAWL_CONFIG = {
+    "notes_per_keyword": 50,           # 每个关键词爬取笔记数
+    "max_comments_per_note": 100,      # 每篇笔记最多爬取评论数
+    "min_interaction": 500,            # 最低互动量阈值
+    "batch_size": 100,                 # 批量导出大小
+    "crawl_comments": True,            # 是否爬取评论
+    "min_comment_like_count": 5,       # 评论最低点赞数
+}
+
+TRAFFIC_LEVEL_CONFIG = {
+    "level_5": {
+        "range": (10000, float('inf')),  # 爆款笔记 (1万+)
+        "include": True,
+    },
+    "level_4": {
+        "range": (5000, 10000),          # 高流量 (5千-1万)
+        "include": True,
+    },
+    # ... 更多层级
+}
+```
+
+### 调整向量库参数
+
+编辑 `run.py` 中的 `build_vector_database()`：
+
+```python
+stats = build_faiss_index(
+    model_name="moka-ai/m3e-base",     # 向量模型（可换成 bge-large）
+    index_type="IVF",                  # 索引类型（IVF/Flat/HNSW）
+    use_gpu=False,                     # 是否使用GPU加速
+    incremental=use_incremental        # 增量更新
+)
+```
+
+---
+
+## 📊 数据库结构
+
+### keywords.db
+
+**keywords 表：**
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| keyword | TEXT | 关键词 |
+| category | TEXT | 分类（city/domain/matrix） |
+| status | TEXT | 状态（active/pending/archived） |
+| quality_score | REAL | 质量分（0-1） |
+| crawl_count | INT | 爬取次数 |
+| last_crawl_time | DATETIME | 最后爬取时间 |
+
+**discovered_tags 表：**
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| tag | TEXT | 标签 |
+| count | INT | 出现次数 |
+| promoted | BOOL | 是否已提升为关键词 |
+
+### notes.db
+
+**notes 表（25字段）：**
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| note_id | TEXT | 笔记ID |
+| title | TEXT | 标题 |
+| desc | TEXT | 内容 |
+| author_name | TEXT | 作者 |
+| liked_count | INT | 点赞数 |
+| total_interaction | INT | 总互动量 |
+| keyword_source | TEXT | 来源关键词 |
+| city_category | TEXT | 城市分类 |
+| domain_category | TEXT | 领域分类 |
+| **full_text** | TEXT | RAG完整文本（标题+内容+标签） |
+| **comments_text** | TEXT | 聚合评论文本 |
+| **vectorized_at** | DATETIME | 向量化时间戳 |
+
+**comments 表：**
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| comment_id | TEXT | 评论ID |
+| note_id | TEXT | 笔记ID（外键） |
+| content | TEXT | 评论内容 |
+（Playwright 版）
+
+### 工作流1：首次使用
+```bash
+# 1. 手动登录小红书获取 Cookie（仅首次）
+python spider_playwright_batch.py --db --limit 1
+# → 浏览器打开 → 手动扫码登录 → Ctrl+C 关闭（Cookie 已保存）
+
+# 2. 验证 Cookie
+python run.py --status
+# → 🔐 Cookie状态: ✅ 已配置 (cookies_fresh.json)
+
+# 3. 首次爬取（自动播种关键词 + 爬取）
+python run.py --spider --mode database --limit 10
+# → 📭 关键词数据库为空，自动播种基础关键词...
+# → 🌱 已播种 156 个基础关键词
+# → 📌 从数据库加载 10 个待爬关键词
+
+# 4. 构建向量库
+python run.py --build-vector
+
+# 5. 测试检索
+python run.py --search "悉尼大学怎么样"
+```
+
+### 工作流2：日常维护
+```bash
+# 1. 查看状态
+python run.py --status
+
+# 2. 增量爬取（DB 模式 + 自动拓展新词）
+python run.py --spider --mode database --limit 20
+
+# 3. 增量更新向量库（自动判断增量/全量）
+python run.py --build-vector
+
+# 4. 检索测试
+python run.py --search "墨尔本租房攻略"
+```
+
+### 工作流3：完全自动化
+```bash
+# 启动调度器，后续全自动运行（需要保持 Cookie 有效）
+python automation.py
+
+# 或配置开机自启（见上方 LaunchAgent 配置）
+```
+
+### 工作流4：探索新领域
+```bash
+# 先拓展关键词，再爬取
+python run.py --spider --keywords 堪培拉生活 --expand-first --limit 30
+
+# 或分步操作
+python run.py --expand --seeds 堪培拉生活 阿德莱德美食
+python run.py --spider --mode database --limit 20
+python automation.py
+
+# 或配置开机自启（见上方 LaunchAgent 配置）
+```
+
+---
+（Playwright 版）
+
+1. **Cookie 有效期**：Playwright Cookie 存储在 `cookies_fresh.json`，可能过期（通常 7-30 天）
+   - 过期表现：爬虫报错 `401 Unauthorized` 或 `403 Forbidden`
+   - 解决方法：重新运行登录脚本，手动扫码登录
+   ```bash
+   rm cookies_fresh.json
+   python spider_playwright_batch.py --db --limit 1  # 重新登录
+   ```
+
+2. **浏览器资源（Playwright 版）
+
+### Q1: Cookie 失效怎么办？
+**A:** Playwright Cookie 存储在 `cookies_fresh.json`，失效后重新登录：
+```bash
+rm cookies_fresh.json
+python spider_playwright_batch.py --db --limit 1
+# → 浏览器打开 → 手动扫码登录 → Ctrl+C 关闭
+```
+
+### Q2: 浏览器无法启动？
+**A:** 可能是 Playwright 浏览器驱动未安装：
+```bash
+playwright install chromium
+# 或使用系统 Chrome（已在代码中配置）
+```
+
+### Q3: 爬虫被限流怎么办？
+**A:** Playwright 版已内置更保守的智能延迟：
+- 基础延迟：8 秒（比旧版更长）
+- 连续错误 → 熔断 5 分钟
+- 如果仍被限流，建议：
+  - 减少 `--limit` 参数（如 10-20）
+  - 增加 `PlaywrightSmartDelay` 中的 `base_delay`（当前 8.0）
+
+### Q4: 向量库占用太多空间怎么办？
+**A:** 
+```bash
+# 删除向量库重新构建（只保留高质量笔记）
+rm -rf ./faiss_db
+python run.py --build-vector
+```
+
+###x] ~~Playwright 驱动爬虫（2025 年反爬对抗）~~ ✅ 已完成
+- [x] ~~Playwright 关键词拓展器~~ ✅ 已完成
+- [x] ~~自动播种 + 自动拓展逻辑~~ ✅ 已完成
+- [ ] 支持多账号轮询（避免单账号限流）
+- [ ] 接入 GPT/Claude 实现智能问答（基于 RAG 检索）
+- [ ] Web UI 界面（Streamlit/Gradio）
+- [ ] 支持更多垂直领域（英国、加拿大留学等）
+- [ ] 实时监控仪表板（爬虫状态、关键词质量、向量库健康度）
+- [ ] Docker 容器化部署anager()
+db.add_keyword("新关键词", source="manual", status="pending")
+# 下次运行 --mode database 时会自动拓展此关键词（如果 auto_expand=True）
+```
+
+### Q6: 增量更新不生效？
+**A:** 检查触发条件：
+- 数据量是否 >1000
+- 新增数据是否 <30%
+- `vectorized_at` 字段是否存在
+
+### Q7: 关键词拓展没有结果？
+**A:** Playwright 拓展器需要：
+- Cookie 有效（`cookies_fresh.json` 存在）
+- 浏Playwright](https://playwright.dev/) - 浏览器自动化（核心）
+- [sentence-transformers](https://github.com/UKPLab/sentence-transformers) - 向量模型
+- [faiss](https://github.com/facebookresearch/faiss) - 向量检索
+- [loguru](https://github.com/Delgan/loguru) - 日志系统
+- [jieba](https://github.com/fxsjy/jieba) - 中文分词
+
+---
+
+## 📝 更新日志
+
+### v2.0.0 (2026-02-07) - Playwright 重构版
+- 🎉 **重大重构**：全面迁移到 Playwright 驱动
+- ✅ 绕过 2025 年小红书反爬机制（TLS 指纹 + Cookie 环境绑定）
+- ✅ API 拦截获取数据（`/search/notes`、`/note/feed`、`/comment`）
+- ✅ Playwright 关键词拓展器（拦截 `/search/recommend`）
+- ✅ 自动播种：DB 为空时自动导入 150+ 基础关键词
+- ✅ 自动拓展：人为添加的新词自动触发拓展
+- ✅ 重写 `run.py`、`scheduled_maintenance.py`、`automation.py`
+- ✅ 反检测注入：隐藏 webdriver 特征，伪造 Chrome runtime
+- ✅ 更保守的智能延迟（基础 8s + 熔断 5min）
+
+### v1.0.0 (2025-11) - 初始版本
+- 基于 requests + execjs 的爬虫（已废弃，无法绕过反爬）
+### Q8: 自动化调度器中断？
+**A:** 检查：
+- Cookie 是否过期
+- 磁盘空间是否充足
+- 查看日志 `logs/scheduler.log` 或 `logs/automation.log`
+---
+
+## ⚠️ 注意事项
+
+1. **Cookie 有效期**：Cookie 可能过期，定期更新 `.env` 文件
+2. **请求频率**：已内置智能延迟，避免频繁修改
+3. **数据备份**：定期备份 `datas/` 目录
+4. **日志监控**：查看 `logs/` 目录排查问题
+5. **磁盘空间**：向量库会占用一定空间（1万条 ~100MB）
+
+---
+
+## 🐛 常见问题
+
+### Q1: Cookie 失效怎么办？
+**A:** 重新登录小红书，按上述方法获取新 Cookie 更新 `.env`
+
+### Q2: 爬虫被限流怎么办？
+**A:** 系统已内置智能延迟，如果仍被限流：
+- 增加 `SmartDelayController` 中的 `base_delay`
+- 减少 `CRAWL_CONFIG` 中的 `notes_per_keyword`
+
+### Q3: 向量库占用太多空间怎么办？
+**A:** 
+```bash
+# 删除向量库重新构建（只保留高质量笔记）
+rm -rf ./faiss_db
+python run.py --build-vector
+```
+
+### Q4: 如何添加新的关键词？
+**A:**
+```python
+from keywords.keyword_manager import KeywordManager
+db = KeywordManager()
+db.add_keyword("新关键词", category="city", status="pending")
+```
+
+### Q5: 增量更新不生效？
+**A:** 检查触发条件：
+- 数据量是否 >1000
+- 新增数据是否 <30%
+- `vectorized_at` 字段是否存在
+
+---
+
+## ⚙️ 重要说明
+
+### DrissionPage vs Playwright
+
+**为什么从 Playwright 切换到 DrissionPage？**
+
+| 特性 | Playwright  | DrissionPage（当前方案） |
+|-----|------------|----------------------|
+| Cookie 管理 | 需要频繁更新 cookies.json | **一次登录，永久有效** ✅ |
+| 反爬检测 | 有 webdriver 特征风险 | **原生 CDP 协议，无特征** ✅ |
+| 登录墙问题 | 容易遇到"请登录"拦截 | **接管已登录浏览器，100% 避免** ✅ |
+| 维护成本 | 需要定期获取新 Cookie | **手动登录一次，长期有效** ✅ |
+| API 拦截 | 支持 | 不支持（改用 SSR + DOM 提取） |
+
+**核心优势**：  
+DrissionPage **接管用户已登录的浏览器**，完全绕过 Cookie 过期、游客模式等问题。只要浏览器保持登录，爬虫就能持续稳定运行。
+
+### 数据提取方式对比
+
+| 数据来源 | 提取方式 | 优先级 |
+|---------|---------|-------|
+| `__INITIAL_STATE__` | SSR 服务端渲染数据 | 🥇 最优先（数据最完整） |
+| JS 直接提取 | `document.querySelectorAll()` | 🥈 次优先（避免选择器问题） |
+| DrissionPage 选择器 | `page.eles('css:...')` | 🥉 保底方案 |
+
+### 文件清理指南
+
+本项目从 Playwright 迁移到 DrissionPage，部分旧文件已过时。详见 [`CLEANUP_GUIDE.md`](CLEANUP_GUIDE.md)：
+
+**可删除的旧文件：**
+- `spider_playwright_batch.py`（旧爬虫）
+- `cookie_manager.py`（Cookie 管理）
+- `run.py`、`automation.py`（旧入口）
+- `keywords/keyword_expander_pw.py`（Playwright 扩展器）
+
+**现在使用：**
+- `spider_drission_batch.py`（主爬虫）
+- `start_chrome.sh`（启动脚本）
+
+---
+
+## 🔮 未来规划
+
+- [ ] 详情页数据提取优化（正文、评论、互动数）
+- [ ] 关键词自动扩展功能（基于 DrissionPage）
+- [ ] 接入 GPT/Claude 实现智能问答
+- [ ] Web UI 界面（Streamlit）
+- [ ] 支持更多垂直领域（英国、加拿大留学等）
+- [ ] 实时监控仪表板
+
+---
+
+## 📄 许可证
+
+MIT License
+
+---
+
+## 👨‍💻 作者
+
+Paris404 - 澳洲留学数据智能采集系统
+
+---
+
+## 🙏 致谢
+
+- [DrissionPage](https://github.com/g1879/DrissionPage) - 浏览器自动化
+- [sentence-transformers](https://github.com/UKPLab/sentence-transformers) - 向量模型
+- [faiss](https://github.com/facebookresearch/faiss) - 向量检索
+- [loguru](https://github.com/Delgan/loguru) - 日志系统
+
+---
+
+**⭐ 如果这个项目对你有帮助，请给个 Star！**
