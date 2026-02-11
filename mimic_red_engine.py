@@ -17,6 +17,23 @@ from typing import List, Dict, Optional
 from loguru import logger
 from DrissionPage import ChromiumPage, ChromiumOptions
 
+# 配置日志轮转
+logger.add(
+    "logs/spider_{time:YYYY-MM-DD}.log",
+    rotation="00:00",  # 每天午夜轮转
+    retention="7 days", # 保留7天
+    level="INFO",
+    encoding="utf-8"
+)
+
+# 加载 CSS 选择器配置
+SELECTORS = {}
+try:
+    with open('selectors.json', 'r', encoding='utf-8') as f:
+        SELECTORS = json.load(f)
+except Exception as e:
+    logger.warning(f"⚠️ 未找到 selectors.json 或加载失败 ({e})，将使用默认硬编码选择器")
+
 # 导入新的存储管理器
 try:
     from xhs_utils.storage_manager import StorageManager
@@ -283,12 +300,17 @@ class DrissionXHSSpider:
         
         while len(collected) < max_count and page_num <= 8:
             # 提取笔记卡片信息 - 关键：获取带 xsec_token 的 search_result 链接
-            js_extract = """
-            return (function() {
-                const items = document.querySelectorAll('section.note-item');
+            # 动态注入选择器
+            search_item_sel = SELECTORS.get('search_note_item', 'section.note-item')
+            title_sels = SELECTORS.get('search_note_title', '.title, .note-title, [class*="title"]')
+            author_sels = SELECTORS.get('search_note_author', '.author, .nickname, [class*="name"]')
+            
+            js_extract = f"""
+            return (function() {{
+                const items = document.querySelectorAll('{search_item_sel}');
                 const results = [];
                 
-                items.forEach((item, index) => {
+                items.forEach((item, index) => {{
                     // 优先获取带 xsec_token 的 search_result 链接（反爬必要）
                     const searchLink = item.querySelector('a[href*="/search_result/"]');
                     const exploreLink = item.querySelector('a[href*="/explore/"]');
@@ -302,25 +324,37 @@ class DrissionXHSSpider:
                     
                     // 提取标题
                     let title = '';
-                    const titleEl = item.querySelector('.title, .note-title, [class*="title"]');
-                    if (titleEl) title = titleEl.innerText;
+                    const titleSels = '{title_sels}'.split(', ');
+                    for (const sel of titleSels) {{
+                        const titleEl = item.querySelector(sel);
+                        if (titleEl) {{
+                            title = titleEl.innerText;
+                            break;
+                        }}
+                    }}
                     if (!title) title = (item.innerText || '').split('\\n')[0];
                     
                     // 提取作者
                     let author = '';
-                    const authorEl = item.querySelector('.author, .nickname, [class*="name"]');
-                    if (authorEl) author = authorEl.innerText;
+                    const authorSels = '{author_sels}'.split(', ');
+                    for (const sel of authorSels) {{
+                        const authorEl = item.querySelector(sel);
+                        if (authorEl) {{
+                            author = authorEl.innerText;
+                            break;
+                        }}
+                    }}
                     
-                    results.push({
+                    results.push({{
                         index: index,
                         href: href,
                         exploreHref: exploreHref,
                         title: title.substring(0, 100),
                         author: author
-                    });
-                });
+                    }});
+                }});
                 return JSON.stringify(results);
-            })();
+            }})();
             """
             
             try:

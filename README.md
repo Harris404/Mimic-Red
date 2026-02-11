@@ -62,8 +62,8 @@ chmod +x start_chrome.sh
 ```
 
 **Windows:**
-请手动创建快捷方式，添加参数：
-`--remote-debugging-port=9222 --user-data-dir="C:\ChromeProfile"`
+直接双击运行 `start_chrome.bat` 脚本即可。
+脚本会自动查找 Chrome 安装路径并开启调试端口。
 
 > **⚠️ 注意**：启动后，请在浏览器中打开 `https://www.xiaohongshu.com` 并扫码登录。登录成功后，**不要关闭浏览器窗口**。
 
@@ -99,18 +99,6 @@ python3 mimic_red_engine.py -k "澳洲留学" "悉尼生活" -l 50 -d 200 --min-
 # --min-likes       最少点赞数过滤 (跳过低质量笔记)
 ```
 
-> 📖 **详细使用说明**：请查看 [使用说明.md](./使用说明.md) 了解更多存储格式说明和使用技巧。阶用法：指定数量、每日上限、最少点赞数过滤
-python3 mimic_red_engine.py -k "澳洲留学" "悉尼生活" -l 50 -d 200 --min-likes 10 --storage csv
-
-# 参数说明：
-# -k, --keywords    关键词列表 (支持多个)
-# -s, --storage     存储格式 (sqlite/csv/json/excel, 默认: sqlite)
-# -o, --output      输出目录 (默认: datas)
-# -l, --limit       每个关键词爬取数量 (默认: 20)
-# -d, --daily-limit 每日总爬取上限 (默认: 0 无限制)
-# --min-likes       最少点赞数过滤 (跳过低质量笔记)
-```
-
 > 📖 **详细使用说明**：请查看 [使用说明.md](./使用说明.md) 了解更多存储格式说明和使用技巧。
 
 ---
@@ -120,7 +108,9 @@ python3 mimic_red_engine.py -k "澳洲留学" "悉尼生活" -l 50 -d 200 --min-
 ```text
 Mimic-Red/
 ├── mimic_red_engine.py      # [核心] 主爬虫引擎
-├── start_chrome.sh          # [工具] Chrome 调试启动脚本
+├── selectors.json           # [配置] CSS选择器配置（支持热更新）
+├── start_chrome.sh          # [工具] Mac/Linux 启动脚本
+├── start_chrome.bat         # [工具] Windows 启动脚本
 ├── requirements.txt         # [依赖] 项目依赖
 ├── 使用说明.md               # [文档] 详细使用说明
 ├── sqlite_datas/            # [数据] SQLite 数据库输出
@@ -131,8 +121,7 @@ Mimic-Red/
 │   ├── crawl_progress.json  # 断点续爬进度
 │   └── reports/             # 爬取报告（可选）
 └── xhs_utils/               # [模块] 工具库
-    ├── storage_manager.py   # 多格式存储管理
-    └── note_manager.py      # SQLite 数据库操作
+    └── storage_manager.py   # 多格式存储管理 (SQLite/CSV/JSON/Excel)
 ```
 
 ---
@@ -148,6 +137,11 @@ Mimic-Red/
 
 ## 📝 更新日志
 
+*   **v3.2 (Optimization)**:
+    *   新增 `selectors.json` 配置文件，支持热更新 CSS 选择器，无需修改代码即可适配改版。
+    *   新增 `start_chrome.bat`，完善 Windows 环境支持。
+    *   优化日志管理，自动轮转清理旧日志。
+    *   移除废弃的 `note_manager` 和 RAG 相关模块，项目更精简。
 *   **v3.1 (Multi-Format-Directories)**:
     *   优化文件组织：不同格式数据存储到专用文件夹（`sqlite_datas/`、`csv_datas/`等）。
     *   移除关键词数据库功能，简化为直接输入关键词。
@@ -160,32 +154,6 @@ Mimic-Red/
     *   重构为 DrissionPage 架构，移除 Playwright。
     *   新增"新标签页模式"，大幅降低反爬风险。
     *   新增视频笔记自动过滤功能。
-*   **v1.0 (Spider-XHS)**:
-    *   基于 Playwright 的初始版本 (已停止维护)关代码，简化项目结构。
-    *   优化数据导出格式，适配更多使用场景。
-*   **v2.0 (Mimic-Red)**:
-    *   重构为 DrissionPage 架构，移除 Playwright。
-    *   新增"新标签页模式"，大幅降低反爬风险。
-    *   新增视频笔记自动过滤功能。
-    *   优化文本清洗算法。
----
-
-## ⚠️ 免责声明
-
-1.  本项目仅供 **学习和研究** 使用，请勿用于商业用途。
-2.  请遵守 [小红书用户协议](https://www.xiaohongshu.com/protocal/user) 和 [Robots协议](https://www.xiaohongshu.com/robots.txt)。
-3.  使用者应对使用本项目产生的一切后果负责，作者不承担任何法律责任。
-4.  如需大规模采集数据，请联系小红书官方获取商业授权 API。
-
----
-
-## 📝 更新日志
-
-*   **v2.0 (Mimic-Red)**:
-    *   重构为 DrissionPage 架构，移除 Playwright。
-    *   新增“新标签页模式”，大幅降低反爬风险。
-    *   新增视频笔记自动过滤功能。
-    *   优化文本清洗算法，支持 RAG 数据格式导出。
 *   **v1.0 (Spider-XHS)**:
     *   基于 Playwright 的初始版本 (已停止维护)。
 

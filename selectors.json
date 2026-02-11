@@ -1,0 +1,22 @@
+{
+    "note_detail_title": ".note-detail-mask .title, #detail-title, .title, .note-title",
+    "note_detail_desc": "#detail-desc, .note-text, .desc",
+    "note_detail_date": ".date, .publish-date",
+    "note_detail_tags": ".tag-item, #detail-desc a[href*='/topic']",
+    "note_detail_interact": ".interact-container, .interaction-box",
+    "note_detail_user_nickname": ".author-container .name, .user-nickname, .author-name",
+    "note_detail_user_id": ".author-container a[href*='/user/profile/']",
+    
+    "search_note_item": "section.note-item",
+    "search_note_title": ".title, .note-title, [class*='title']",
+    "search_note_author": ".author, .nickname, [class*='name']",
+    "search_note_cover": ".cover, .note-cover",
+    
+    "comment_item": ".comment-item, .comment-inner-container, [class*='commentItem'], [class*='comment-item'], .parent-comment, [class*='CommentItem']",
+    "comment_content": ".content, .note-text, [class*='content'], [class*='text'], p",
+    "comment_author": ".name, .author, .nickname, .user-name, [class*='name'], [class*='author']",
+    "comment_like": ".like-count, .like span, [class*='like'] span, [class*='count']",
+    
+    "login_close_btn": ".login-close, [class*='login'] [class*='close'], .close-icon",
+    "expand_btn": "#detail-desc span.expand, .expand-btn"
+}
