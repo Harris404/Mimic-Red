@@ -69,8 +69,7 @@ chmod +x start_chrome.sh
 
 > **🍪 Cookie 说明**：
 > - 本项目使用 CDP 协议接管浏览器，会自动从浏览器会话中获取 Cookie，**无需手动配置** `cookies_fresh.json` 文件。
-> - `cookies_fresh.json` 文件仅作为示例模板，实际运行时会自动从已登录的 Chrome 浏览器中读取认证信息。
-> - 请勿将真实的 Cookie 文件上传到 GitHub，已通过 `.gitignore` 规则排除。
+
 
 ### 3. 运行爬虫
 
@@ -99,7 +98,7 @@ python3 mimic_red_engine.py -k "澳洲留学" "悉尼生活" -l 50 -d 200 --min-
 # --min-likes       最少点赞数过滤 (跳过低质量笔记)
 ```
 
-> 📖 **详细使用说明**：请查看 [使用说明.md](./使用说明.md) 了解更多存储格式说明和使用技巧。
+> 📖 **详细使用说明**：请查看 [使用说明](./使用说明.md) 了解更多存储格式说明和使用技巧。
 
 ---
 
@@ -133,29 +132,6 @@ Mimic-Red/
 3.  使用者应对使用本项目产生的一切后果负责，作者不承担任何法律责任。
 4.  如需大规模采集数据，请联系小红书官方获取商业授权 API。
 
----
-
-## 📝 更新日志
-
-*   **v3.2 (Optimization)**:
-    *   新增 `selectors.json` 配置文件，支持热更新 CSS 选择器，无需修改代码即可适配改版。
-    *   新增 `start_chrome.bat`，完善 Windows 环境支持。
-    *   优化日志管理，自动轮转清理旧日志。
-    *   移除废弃的 `note_manager` 和 RAG 相关模块，项目更精简。
-*   **v3.1 (Multi-Format-Directories)**:
-    *   优化文件组织：不同格式数据存储到专用文件夹（`sqlite_datas/`、`csv_datas/`等）。
-    *   移除关键词数据库功能，简化为直接输入关键词。
-    *   优化代码结构，提升易用性。
-*   **v3.0 (Multi-Storage)**:
-    *   新增多格式存储支持 (CSV/JSON/Excel/SQLite)。
-    *   移除 RAG 相关代码，简化项目结构。
-    *   优化数据导出格式，适配更多使用场景。
-*   **v2.0 (Mimic-Red)**:
-    *   重构为 DrissionPage 架构，移除 Playwright。
-    *   新增"新标签页模式"，大幅降低反爬风险。
-    *   新增视频笔记自动过滤功能。
-*   **v1.0 (Spider-XHS)**:
-    *   基于 Playwright 的初始版本 (已停止维护)。
 
 ---
 
