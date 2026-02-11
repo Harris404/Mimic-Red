@@ -29,8 +29,7 @@ ENV/
 env.bak/
 venv.bak/
 
-# Cookie 文件 - 包含敏感信息
-cookies*.json
+
 
 # 数据文件夹（不同格式的数据存储）
 datas/
