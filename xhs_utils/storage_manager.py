@@ -311,6 +311,23 @@ class StorageManager:
         except Exception as e:
             logger.error(f"Excel 保存失败: {e}")
     
+    def note_exists(self, note_id: str) -> bool:
+        """检查笔记是否存在"""
+        if self.storage_type == "sqlite":
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cursor = conn.execute("SELECT 1 FROM notes WHERE note_id = ?", (note_id,))
+                exists = cursor.fetchone() is not None
+                conn.close()
+                return exists
+            except:
+                return False
+        else:
+            # 对于非 SQLite 格式，只能检查当前会话已缓存的数据
+            # 注意：这无法实现跨次运行的去重（除非每次都加载所有历史文件，那太慢了）
+            # 如果需要严格的跨次去重，请使用 sqlite 格式
+            return any(note.get('note_id') == note_id for note in self.notes_data)
+
     def get_seen_note_ids(self) -> set:
         """获取已爬取的笔记ID（用于去重）"""
         seen_ids = set()

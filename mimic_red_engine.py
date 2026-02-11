@@ -26,19 +26,20 @@ except ImportError as e:
 
 class DataDeduplicator:
     def __init__(self, storage_manager: StorageManager = None):
-        self.seen_note_ids = set()
-        if storage_manager:
-            try:
-                self.seen_note_ids = storage_manager.get_seen_note_ids()
-                if self.seen_note_ids:
-                    logger.info(f"   ✅ 已加载 {len(self.seen_note_ids)} 个历史笔记ID用于去重")
-            except Exception as e:
-                logger.debug(f"加载历史笔记ID失败: {e}")
+        self.storage = storage_manager
+        self.local_seen = set()
     
     def is_duplicate(self, note_id: str) -> bool:
-        if note_id in self.seen_note_ids:
+        # 1. 检查本次运行的内存缓存
+        if note_id in self.local_seen:
             return True
-        self.seen_note_ids.add(note_id)
+            
+        # 2. 检查持久化存储 (SQLite)
+        if self.storage and self.storage.note_exists(note_id):
+            self.local_seen.add(note_id) # 更新本地缓存
+            return True
+            
+        self.local_seen.add(note_id)
         return False
 
 import re
@@ -128,8 +129,8 @@ class DrissionXHSSpider:
         except Exception as e:
             logger.debug(f"预热异常: {e}")
 
-    def _load_progress(self) -> set:
-        """加载已完成的关键词（支持断点续爬）"""
+    def _load_progress(self) -> tuple[set, int]:
+        """加载已完成的关键词和今日爬取计数（支持断点续爬）"""
         progress_file = 'datas/crawl_progress.json'
         if os.path.exists(progress_file):
             try:
@@ -138,10 +139,10 @@ class DrissionXHSSpider:
                 # 只保留当天的进度
                 today = datetime.now().strftime('%Y-%m-%d')
                 if data.get('date') == today:
-                    return set(data.get('done_keywords', []))
+                    return set(data.get('done_keywords', [])), data.get('daily_count', 0)
             except:
                 pass
-        return set()
+        return set(), 0
 
     def _save_progress(self, done_keywords: set, daily_count: int):
         """保存爬取进度"""
@@ -877,7 +878,7 @@ class DrissionXHSSpider:
         self.init_browser()
         
         # 加载进度（支持断点续爬）
-        done_keywords = self._load_progress()
+        done_keywords, loaded_daily_count = self._load_progress()
         if done_keywords:
             original_count = len(keywords)
             keywords = [kw for kw in keywords if kw not in done_keywords]
@@ -897,7 +898,9 @@ class DrissionXHSSpider:
         if warmup:
             self._warmup_session()
         
-        daily_count = 0  # 当日已爬取数
+        daily_count = loaded_daily_count  # 恢复当日已爬取数
+        if daily_count > 0:
+            logger.info(f"📊 今日已爬取 {daily_count} 条，继续累计...")
         
         for i, kw in enumerate(keywords):
             # 每日上限检查
@@ -953,8 +956,7 @@ class DrissionXHSSpider:
                     logger.info(f"      ⏭️ 跳过视频笔记")
                     continue
                 
-                if full_note and self.note_db:
-                    # 最少点赞过滤（减少无效请求，提高storage:
+                if full_note and self.storage:
                     # 最少点赞过滤（减少无效请求）
                     liked = full_note.get('liked_count', 0)
                     if min_likes > 0 and liked < min_likes:
@@ -999,7 +1001,8 @@ class DrissionXHSSpider:
                 time.sleep(rest)
 
         self._print_stats(daily_count, daily_limit)
-# 完成存储（JSON/Excel 需要最终写入）
+        
+        # 完成存储（JSON/Excel 需要最终写入）
         if self.storage:
             self.storage.finalize()
         

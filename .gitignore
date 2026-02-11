@@ -39,8 +39,6 @@ csv_datas/
 json_datas/
 excel_datas/
 
-# RAG 相关备份
-backup_rag/
 
 # IDE 和系统文件
 .opencode/
