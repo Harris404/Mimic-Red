@@ -17,6 +17,9 @@ from typing import List, Dict, Optional
 from loguru import logger
 from DrissionPage import ChromiumPage, ChromiumOptions
 
+# 配置日志自动保存
+logger.add("logs/spider_{time:YYYY-MM-DD}.log", rotation="1 day", retention="7 days", encoding="utf-8")
+
 # 导入新的存储管理器
 try:
     from xhs_utils.storage_manager import StorageManager

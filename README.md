@@ -11,16 +11,6 @@
 
 **Mimic-Red** 是一款针对小红书网页版的高性能、低风险数据采集工具。
 
-**Mimic-Red** 采用 **CDP** 接管真实浏览器，通过 **DOM 交互** 和 **SSR 数据提取** 技术，实现对小红书数据的无感采集。
-
-### 核心特性
-
-*   🕷️ **拟态采集 (Mimicry)**: 接管真实 Chrome 浏览器，复用真实指纹、Cookies 和 LocalStorage，极难被反爬系统检测。
-*   👻 **幽灵模式 (Ghost Mode)**: 采用新标签页模式打开详情页，采集完成后自动关闭，完美模拟用户"后台打开"行为。
-*   🛡️ **智能风控**: 内置智能延迟（时段感知）、贝塞尔曲线鼠标轨迹、视频笔记自动过滤，大幅降低封号风险。
-*   💾 **多格式存储**: 支持 **SQLite、CSV、JSON、Excel** 四种存储格式，满足不同使用场景。
-*   🔄 **增量更新**: 自动去重（CSV/JSON支持跨运行去重），支持断点续爬。
-
 ---
 
 ## 🛠️ 技术架构
@@ -72,10 +62,10 @@ chmod +x start_chrome.sh
 
 ```bash
 # 最简单用法（默认SQLite存储，爬取20条）
-python mimic_red_engine.py -k "澳洲留学"
+python mimic_red_engine.py -k "悉尼咖啡"
 
 # 推荐配置（每日限额100条，安全稳定）
-python mimic_red_engine.py -k "澳洲留学" -l 20 -d 100 -s sqlite
+python mimic_red_engine.py -k "悉尼咖啡" -l 20 -d 100 -s sqlite
 
 # 多关键词批量采集
 python mimic_red_engine.py \
@@ -176,18 +166,6 @@ python mimic_red_engine.py \
 **可持续性**: 细水长流。本项目旨在辅助个人研究和小规模数据收集，而非商业级的大规模采集。
 
 ---
-
-### 问题反馈
-
-如遇到问题，请：
-
-1. 查看 [使用说明.md](./使用说明.md) 中的常见问题排查
-2. 搜索 [Issues](https://github.com/your-repo/issues) 中是否有类似问题
-3. 提交新 Issue 时，请附上：
-   - 错误日志（完整的终端输出）
-   - 使用的命令
-   - Python版本（`python --version`）
-   - 操作系统版本
 
 ### Star History
 
