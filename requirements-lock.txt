@@ -1,0 +1,26 @@
+# 锁定版本的依赖清单
+# 用于生产环境以确保版本一致性
+# 安装命令: pip install -r requirements-lock.txt
+
+# 核心依赖
+DrissionPage==4.1.0.5
+loguru==0.7.2
+requests==2.31.0
+httpx==0.26.0
+tenacity==8.2.3
+
+# 数据处理与导出
+pandas==2.1.4
+openpyxl==3.1.2
+numpy==1.26.3
+
+# 工具库
+python-dotenv==1.0.1
+retry==0.9.2
+PyExecJS==1.5.1      # ⚠️ 需要 Node.js 运行时
+
+# 定时任务（可选）
+schedule==1.2.1
+
+# 推荐的额外依赖（可选）
+# chinese-calendar==1.9.0  # 用于中国节假日检测

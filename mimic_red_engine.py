@@ -17,23 +17,6 @@ from typing import List, Dict, Optional
 from loguru import logger
 from DrissionPage import ChromiumPage, ChromiumOptions
 
-# 配置日志轮转
-logger.add(
-    "logs/spider_{time:YYYY-MM-DD}.log",
-    rotation="00:00",  # 每天午夜轮转
-    retention="7 days", # 保留7天
-    level="INFO",
-    encoding="utf-8"
-)
-
-# 加载 CSS 选择器配置
-SELECTORS = {}
-try:
-    with open('selectors.json', 'r', encoding='utf-8') as f:
-        SELECTORS = json.load(f)
-except Exception as e:
-    logger.warning(f"⚠️ 未找到 selectors.json 或加载失败 ({e})，将使用默认硬编码选择器")
-
 # 导入新的存储管理器
 try:
     from xhs_utils.storage_manager import StorageManager
@@ -43,20 +26,19 @@ except ImportError as e:
 
 class DataDeduplicator:
     def __init__(self, storage_manager: StorageManager = None):
-        self.storage = storage_manager
-        self.local_seen = set()
+        self.seen_note_ids = set()
+        if storage_manager:
+            try:
+                self.seen_note_ids = storage_manager.get_seen_note_ids()
+                if self.seen_note_ids:
+                    logger.info(f"   ✅ 已加载 {len(self.seen_note_ids)} 个历史笔记ID用于去重")
+            except Exception as e:
+                logger.debug(f"加载历史笔记ID失败: {e}")
     
     def is_duplicate(self, note_id: str) -> bool:
-        # 1. 检查本次运行的内存缓存
-        if note_id in self.local_seen:
+        if note_id in self.seen_note_ids:
             return True
-            
-        # 2. 检查持久化存储 (SQLite)
-        if self.storage and self.storage.note_exists(note_id):
-            self.local_seen.add(note_id) # 更新本地缓存
-            return True
-            
-        self.local_seen.add(note_id)
+        self.seen_note_ids.add(note_id)
         return False
 
 import re
@@ -132,11 +114,11 @@ class DrissionXHSSpider:
                 """)
                 if feed_link:
                     self.page.get(feed_link)
-                    time.sleep(random.uniform(4, 8))  # “阅读”几秒
+                    time.sleep(random.uniform(4, 8))  # "阅读"几秒
                     self._human_like_scroll('down', random.randint(200, 500))
                     time.sleep(random.uniform(2, 4))
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"预热随机浏览失败: {e}")
             
             # 4. 回到首页
             self.page.get('https://www.xiaohongshu.com')
@@ -144,7 +126,7 @@ class DrissionXHSSpider:
             
             logger.info("✅ 预热完成，开始爬取")
         except Exception as e:
-            logger.debug(f"预热异常: {e}")
+            logger.warning(f"会话预热异常: {e}，跳过预热继续执行")
 
     def _load_progress(self) -> tuple[set, int]:
         """加载已完成的关键词和今日爬取计数（支持断点续爬）"""
@@ -157,8 +139,8 @@ class DrissionXHSSpider:
                 today = datetime.now().strftime('%Y-%m-%d')
                 if data.get('date') == today:
                     return set(data.get('done_keywords', [])), data.get('daily_count', 0)
-            except:
-                pass
+            except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
+                logger.debug(f"加载进度文件失败: {e}，将从头开始")
         return set(), 0
 
     def _save_progress(self, done_keywords: set, daily_count: int):
@@ -172,8 +154,8 @@ class DrissionXHSSpider:
                     'daily_count': daily_count,
                     'updated_at': datetime.now().isoformat()
                 }, f, ensure_ascii=False)
-        except:
-            pass
+        except (IOError, OSError) as e:
+            logger.error(f"保存进度文件失败: {e}")
 
     def _random_mouse_move(self):
         """模拟人类随机鼠标移动（贝塞尔曲线轨迹）"""
@@ -196,9 +178,11 @@ class DrissionXHSSpider:
                 
                 try:
                     self.page.actions.move_to((x, y), duration=random.uniform(0.02, 0.08))
-                except: pass
+                except Exception as e:
+                    logger.debug(f"鼠标移动步骤失败: {e}")
                 time.sleep(random.uniform(0.01, 0.05))
-        except: pass
+        except Exception as e:
+            logger.debug(f"随机鼠标移动失败: {e}")
 
     def _human_like_scroll(self, direction: str = 'down', distance: int = None):
         """模拟人类滚动行为"""
@@ -216,7 +200,8 @@ class DrissionXHSSpider:
                 else:
                     self.page.scroll.up(per_scroll + random.randint(-30, 30))
                 time.sleep(random.uniform(0.1, 0.3))
-        except: pass
+        except Exception as e:
+            logger.debug(f"页面滚动失败: {e}")
 
     def _smart_delay(self, action: str = 'detail'):
         """智能延迟：根据时段、请求次数、连续失败动态调节"""
@@ -271,8 +256,8 @@ class DrissionXHSSpider:
             
             if '404' in url or 'error' in url:
                 return True
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"反爬检测异常: {e}")
         return False
 
     def _safe_int(self, value) -> int:
@@ -284,7 +269,9 @@ class DrissionXHSSpider:
                 if 'w' in v.lower(): return int(float(v.lower().replace('w', '')) * 10000)
                 return int(v)
             return 0
-        except: return 0
+        except (ValueError, TypeError, AttributeError) as e:
+            logger.debug(f"数值转换失败: {value} -> {e}")
+            return 0
 
     def search_notes(self, keyword: str, max_count: int = 20) -> List[Dict]:
         """搜索列表 - 提取带 xsec_token 的链接"""
@@ -300,17 +287,12 @@ class DrissionXHSSpider:
         
         while len(collected) < max_count and page_num <= 8:
             # 提取笔记卡片信息 - 关键：获取带 xsec_token 的 search_result 链接
-            # 动态注入选择器
-            search_item_sel = SELECTORS.get('search_note_item', 'section.note-item')
-            title_sels = SELECTORS.get('search_note_title', '.title, .note-title, [class*="title"]')
-            author_sels = SELECTORS.get('search_note_author', '.author, .nickname, [class*="name"]')
-            
-            js_extract = f"""
-            return (function() {{
-                const items = document.querySelectorAll('{search_item_sel}');
+            js_extract = """
+            return (function() {
+                const items = document.querySelectorAll('section.note-item');
                 const results = [];
                 
-                items.forEach((item, index) => {{
+                items.forEach((item, index) => {
                     // 优先获取带 xsec_token 的 search_result 链接（反爬必要）
                     const searchLink = item.querySelector('a[href*="/search_result/"]');
                     const exploreLink = item.querySelector('a[href*="/explore/"]');
@@ -324,37 +306,25 @@ class DrissionXHSSpider:
                     
                     // 提取标题
                     let title = '';
-                    const titleSels = '{title_sels}'.split(', ');
-                    for (const sel of titleSels) {{
-                        const titleEl = item.querySelector(sel);
-                        if (titleEl) {{
-                            title = titleEl.innerText;
-                            break;
-                        }}
-                    }}
+                    const titleEl = item.querySelector('.title, .note-title, [class*="title"]');
+                    if (titleEl) title = titleEl.innerText;
                     if (!title) title = (item.innerText || '').split('\\n')[0];
                     
                     // 提取作者
                     let author = '';
-                    const authorSels = '{author_sels}'.split(', ');
-                    for (const sel of authorSels) {{
-                        const authorEl = item.querySelector(sel);
-                        if (authorEl) {{
-                            author = authorEl.innerText;
-                            break;
-                        }}
-                    }}
+                    const authorEl = item.querySelector('.author, .nickname, [class*="name"]');
+                    if (authorEl) author = authorEl.innerText;
                     
-                    results.push({{
+                    results.push({
                         index: index,
                         href: href,
                         exploreHref: exploreHref,
                         title: title.substring(0, 100),
                         author: author
-                    }});
-                }});
+                    });
+                });
                 return JSON.stringify(results);
-            }})();
+            })();
             """
             
             try:
@@ -519,7 +489,8 @@ class DrissionXHSSpider:
                 if detail_data.get('type') == 'video':
                     tab.close()
                     return {'skipped': True, 'reason': 'video'}
-        except: pass
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.debug(f"SSR数据提取失败: {e}")
         
         # ====== 第二步：DOM操作（关闭弹窗、展开全文、滚动加载评论）======
         # 这些操作可能导致Vue组件状态变化，必须在SSR提取之后
@@ -531,7 +502,8 @@ class DrissionXHSSpider:
                     if (e.offsetWidth > 0) e.click();
                 });
             """)
-        except: pass
+        except Exception as e:
+            logger.debug(f"关闭弹窗失败: {e}")
         
         # 展开全文
         try:
@@ -540,7 +512,8 @@ class DrissionXHSSpider:
                 if (expand) expand.click();
             """)
             time.sleep(0.5)
-        except: pass
+        except Exception as e:
+            logger.debug(f"展开全文失败: {e}")
         
         # 滚动加载评论（多次渐进滚动，尝试多种滚动容器）
         try:
@@ -565,7 +538,8 @@ class DrissionXHSSpider:
                     window.scrollTo(0, {scroll_pos});
                 """)
                 time.sleep(random.uniform(1.0, 2.0))
-        except: pass
+        except Exception as e:
+            logger.debug(f"滚动加载评论失败: {e}")
 
         # ====== 第三步：DOM 提取（SSR失败时的保底）======
         if not detail_data.get('desc'):
@@ -593,7 +567,8 @@ class DrissionXHSSpider:
                     if dom_data.get('desc'):
                         detail_data.update(dom_data)
                         logger.info(f"   ✅ DOM 提取: desc={len(dom_data['desc'])}字")
-            except: pass
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.debug(f"DOM数据提取失败: {e}")
             
         # ====== 第四步：评论提取（SSR优先 + DOM兜底）======
         
@@ -784,7 +759,8 @@ class DrissionXHSSpider:
         # 退出详情
         try:
             tab.close()
-        except: pass
+        except Exception as e:
+            logger.debug(f"关闭标签页失败: {e}")
         time.sleep(0.5)
         
         # 组装
@@ -809,7 +785,7 @@ class DrissionXHSSpider:
         full_note['collected_count'] = self._safe_int(interact.get('collectedCount', interact.get('collected_count', 0)))
         full_note['comment_count'] = self._safe_int(interact.get('commentCount', interact.get('comment_count', 0)))
         
-        # 计算总互动量和流量等级（用于RAG筛选优质内容）
+        # 计算总互动量和流量等级
         total_interaction = full_note['liked_count'] + full_note['collected_count'] + full_note['comment_count']
         full_note['total_interaction'] = total_interaction
         
@@ -857,7 +833,8 @@ class DrissionXHSSpider:
         try:
             # 过滤掉非BMP字符（通常是Emoji）
             text = "".join(c for c in text if c <= "\uFFFF")
-        except: pass
+        except Exception as e:
+            logger.debug(f"Emoji过滤失败: {e}")
         
         # 2. 规范化标签格式: #标签 -> [标签]
         text = re.sub(r'#(\S+)', r'[\1]', text)

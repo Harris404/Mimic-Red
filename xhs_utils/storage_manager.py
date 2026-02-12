@@ -320,7 +320,8 @@ class StorageManager:
                 exists = cursor.fetchone() is not None
                 conn.close()
                 return exists
-            except:
+            except (sqlite3.Error, sqlite3.DatabaseError) as e:
+                logger.debug(f"检查笔记是否存在失败: {e}")
                 return False
         else:
             # 对于非 SQLite 格式，只能检查当前会话已缓存的数据
@@ -338,17 +339,51 @@ class StorageManager:
                 cursor = conn.execute("SELECT note_id FROM notes")
                 seen_ids = {row[0] for row in cursor if row[0]}
                 conn.close()
-            except:
-                pass
+            except (sqlite3.Error, sqlite3.DatabaseError) as e:
+                logger.debug(f"加载SQLite历史笔记ID失败: {e}")
         elif self.storage_type == "csv":
             try:
-                with open(self.notes_file, 'r', encoding='utf-8-sig') as f:
-                    reader = csv.DictReader(f)
-                    seen_ids = {row['note_id'] for row in reader if row.get('note_id')}
-            except:
-                pass
+                import glob
+                csv_pattern = str(self.output_dir / "notes_*.csv")
+                csv_files = glob.glob(csv_pattern)
+                
+                if csv_files:
+                    logger.info(f"   📂 扫描到 {len(csv_files)} 个历史CSV文件，加载笔记ID...")
+                    for csv_file in csv_files:
+                        try:
+                            with open(csv_file, 'r', encoding='utf-8-sig') as f:
+                                reader = csv.DictReader(f)
+                                for row in reader:
+                                    if row.get('note_id'):
+                                        seen_ids.add(row['note_id'])
+                        except (IOError, KeyError) as e:
+                            logger.debug(f"读取CSV文件 {csv_file} 失败: {e}")
+                    
+                    logger.info(f"   ✅ 已加载 {len(seen_ids)} 个历史笔记ID用于去重")
+            except (FileNotFoundError, IOError, KeyError) as e:
+                logger.debug(f"加载CSV历史笔记ID失败: {e}")
+        elif self.storage_type == "json":
+            try:
+                import glob
+                json_pattern = str(self.output_dir / "notes_*.json")
+                json_files = glob.glob(json_pattern)
+                
+                if json_files:
+                    logger.info(f"   📂 扫描到 {len(json_files)} 个历史JSON文件，加载笔记ID...")
+                    for json_file in json_files:
+                        try:
+                            with open(json_file, 'r', encoding='utf-8') as f:
+                                data = json.load(f)
+                                for note in data.get('notes', []):
+                                    if note.get('note_id'):
+                                        seen_ids.add(note['note_id'])
+                        except (IOError, json.JSONDecodeError) as e:
+                            logger.debug(f"读取JSON文件 {json_file} 失败: {e}")
+                    
+                    logger.info(f"   ✅ 已加载 {len(seen_ids)} 个历史笔记ID用于去重")
+            except Exception as e:
+                logger.debug(f"加载JSON历史笔记ID失败: {e}")
         else:
-            # JSON/Excel 从内存获取
             seen_ids = {note.get('note_id') for note in self.notes_data if note.get('note_id')}
         
         return seen_ids

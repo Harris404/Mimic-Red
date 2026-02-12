@@ -1,19 +1,22 @@
 # 核心依赖
 DrissionPage>=4.1.0
-loguru
-requests
-httpx
-tenacity
+loguru>=0.7.0
+requests>=2.31.0
+httpx>=0.26.0
+tenacity>=8.2.0
 
 # 数据处理与导出
-pandas          # Excel 格式支持
-openpyxl        # Excel 文件操作
-numpy          # 数据处理
+pandas>=2.1.0          # Excel 格式支持
+openpyxl>=3.1.0        # Excel 文件操作
+numpy>=1.26.0          # 数据处理
 
 # 工具库
-python-dotenv
-retry
-PyExecJS
+python-dotenv>=1.0.0
+retry>=0.9.2
+PyExecJS>=1.5.1
 
 # 定时任务（可选）
-schedule
+schedule>=1.2.0
+
+# 推荐安装（生产环境使用锁定版本）：
+# pip install -r requirements-lock.txt
