@@ -21,7 +21,6 @@
 | **数据提取** | `SSR + DOM` | 优先提取 `__INITIAL_STATE__` JSON 数据，DOM 作为兜底 |
 | **反爬对抗** | `Mimicry` | 真实浏览器接管 + 拟人化操作 + 随机延迟 |
 | **数据存储** | `多格式` | 支持 SQLite/CSV/JSON/Excel 四种格式 |
-| **文本处理** | `Regex` | 清洗 Emoji 和特殊字符，优化数据质量 |
 
 ---
 
