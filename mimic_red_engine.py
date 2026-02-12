@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-DrissionPage 版小红书批量爬虫 (多格式存储版)
+DrissionPage 小红书批量爬虫 
 核心策略：移除所有 API 监听 (降低特征) -> 纯 DOM 交互 (点击/滚动) -> 被动 SSR/DOM 提取
 支持存储格式：CSV、JSON、Excel、SQLite
 """
@@ -409,7 +409,7 @@ class DrissionXHSSpider:
         detail_data = {}
         comments = []
 
-        # ====== 第一步：SSR 提取（必须在任何DOM操作之前！）======
+        # ====== 第一步：SSR 提取（在任何DOM操作之前）======
         # 关闭弹窗的JS会误触发笔记关闭按钮，导致Vue组件卸载、SSR数据清空
         # 所以必须先提取SSR数据，再做其他DOM操作
         try:
@@ -1036,11 +1036,11 @@ class DrissionXHSSpider:
         )
 
 def main():
-    parser = argparse.ArgumentParser(description='DrissionPage 小红书爬虫 (多格式存储版)')
+    parser = argparse.ArgumentParser(description='DrissionPage 小红书爬虫 ')
     parser.add_argument('--keywords', '-k', nargs='+', help='关键词列表')
     parser.add_argument('--limit', '-l', type=int, default=20, help='每个关键词最多爬取数量')
-    parser.add_argument('--daily-limit', '-d', type=int, default=0,
-                        help='每日最多爬取总数（0=无限制，推荐 50-100）')
+    parser.add_argument('--daily-limit', '-d', type=int, default=50,
+                        help='每日最多爬取总数（推荐 50-100）')
     parser.add_argument('--min-likes', type=int, default=0,
                         help='最少点赞数过滤（跳过低互动笔记，减少请求）')
     parser.add_argument('--storage', '-s', type=str, default='sqlite',
@@ -1053,7 +1053,7 @@ def main():
     args = parser.parse_args()
     
     spider = DrissionXHSSpider(storage_type=args.storage, output_dir=args.output)
-    keywords = args.keywords if args.keywords else ["澳洲留学"]
+    keywords = args.keywords if args.keywords else ["悉尼咖啡"]
     
     logger.info(f"📦 存储格式: {args.storage.upper()}")
     logger.info(f"📂 输出目录: {args.output}")
