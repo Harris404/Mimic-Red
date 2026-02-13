@@ -31,10 +31,13 @@ class DataDeduplicator:
         return False
 
 class DrissionXHSSpider:
-    def __init__(self, storage_type: str = "sqlite", output_dir: str = "datas", takeover: bool = True):
+    def __init__(self, storage_type: str = "sqlite", output_dir: str = "datas", 
+                 takeover: bool = True, headless: bool = False, proxy: Optional[str] = None):
         self.storage_type = storage_type
         self.output_dir = output_dir
         self.takeover = takeover
+        self.headless = headless
+        self.proxy = proxy
         self.page = None
         self.storage = None
         self.deduplicator = None
@@ -78,22 +81,122 @@ class DrissionXHSSpider:
 
     def init_browser(self):
         """初始化浏览器"""
-        if not self.takeover:
-            logger.error("❌ 推荐使用接管模式 (takeover=True) 以降低风险")
-            sys.exit(1)
-            
-        logger.info("🚀 尝试接管 Chrome (9222)...")
-        try:
-            self.page = ChromiumPage(addr_or_opts='127.0.0.1:9222')
-            current_url = self.page.url or ''
-            logger.info(f"   ✅ 接管成功，当前页面: {current_url[:60]}...")
-            
-            if 'xiaohongshu.com' not in current_url:
+        if self.takeover:
+            logger.info("🚀 尝试接管 Chrome (9222)...")
+            try:
+                co = ChromiumOptions()
+                co.set_local_port(9222)
+                self.page = ChromiumPage(addr_or_opts=co)
+                current_url = self.page.url or ''
+                logger.info(f"   ✅ 接管成功，当前页面: {current_url[:60]}...")
+                
+                if 'xiaohongshu.com' not in current_url:
+                    self.page.get('https://www.xiaohongshu.com')
+                    time.sleep(2)
+            except Exception as e:
+                logger.error(f"   ❌ 接管失败: {e}")
+                logger.warning("   💡 请确保已运行 start_chrome.sh 或 start_chrome.bat")
+                sys.exit(1)
+        else:
+            logger.info("🚀 启动新浏览器实例...")
+            try:
+                import traceback
+                co = ChromiumOptions()
+                # 基础配置
+                co.set_argument('--no-first-run')
+                co.set_argument('--no-default-browser-check')
+                co.set_argument('--disable-infobars')
+                
+                # 无头模式
+                if self.headless:
+                    co.headless()
+                    logger.info("   👻 已启用无头模式 (Headless)")
+                
+                # 代理配置
+                if self.proxy:
+                    co.set_proxy(self.proxy)
+                    logger.info(f"   🌐 使用代理: {self.proxy}")
+                
+                # 设置用户目录（保持登录状态/Cookie持久化）
+                user_data_dir = os.path.join(os.getcwd(), "browser_data")
+                co.set_user_data_path(user_data_dir)
+                
+                # 使用固定端口（不用 auto_port，它会覆盖用户目录导致 Cookie 丢失）
+                co.set_local_port(9333)
+                
+                self.page = ChromiumPage(addr_or_opts=co)
+                logger.info("   ✅ 浏览器启动成功")
+                
                 self.page.get('https://www.xiaohongshu.com')
-                time.sleep(2)
-        except Exception as e:
-            logger.error(f"   ❌ 接管失败: {e}")
-            sys.exit(1)
+                time.sleep(3)
+                
+                # 检查登录状态（优化后的检测逻辑）
+                try:
+                    # 检测是否需要登录（多种策略）
+                    def is_logged_in():
+                        """检查是否已登录"""
+                        try:
+                            # 策略1：检查是否存在登录按钮（存在=未登录）
+                            if self.page.ele('.login-btn', timeout=0.5):
+                                return False
+                            if self.page.ele('text:登录', timeout=0.5):
+                                return False
+                            
+                            # 策略2：检查URL（包含explore或user表示已登录）
+                            current_url = self.page.url or ''
+                            if 'explore' in current_url or 'user' in current_url:
+                                return True
+                            
+                            # 策略3：检查是否有用户头像、侧边栏等已登录才有的元素
+                            logged_in_selectors = [
+                                'css:.avatar',
+                                'css:[class*="avatar"]', 
+                                'css:[class*="user-info"]',
+                                'xpath://img[contains(@class, "avatar")]'
+                            ]
+                            for selector in logged_in_selectors:
+                                try:
+                                    if self.page.ele(selector, timeout=0.3):
+                                        return True
+                                except:
+                                    continue
+                                    
+                            return False
+                        except:
+                            return False
+                    
+                    # 先做快速检测
+                    if is_logged_in():
+                        logger.info("   ✅ 已检测到登录状态")
+                    else:
+                        logger.warning("   ⚠️ 未检测到登录状态，请在浏览器窗口中扫码登录！")
+                        logger.warning("   ⏳ 等待登录中 (最多等待60秒)...")
+                        
+                        # 持续轮询检测登录（每2秒检测一次，共30次 = 60秒）
+                        login_success = False
+                        for i in range(30):
+                            time.sleep(2)
+                            if is_logged_in():
+                                login_success = True
+                                logger.info("   ✅ 登录成功！")
+                                break
+                            
+                            # 每10秒提示一次
+                            if (i + 1) % 5 == 0:
+                                logger.info(f"   ⏳ 还在等待登录... (已等待 {(i+1)*2} 秒)")
+                        
+                        if not login_success:
+                            logger.error("   ❌ 登录超时，未检测到登录成功")
+                            logger.warning("   💡 提示：请确保在浏览器中完成扫码登录")
+                            logger.warning("   💡 如已登录但检测失败，可以尝试手动访问首页再重新运行")
+                            
+                except Exception as e:
+                    logger.warning(f"   ⚠️ 登录状态检测异常: {e}，假定已登录继续")
+                        
+            except Exception as e:
+                logger.error(f"   ❌ 启动失败: {e}")
+                logger.error(f"   完整错误:\n{traceback.format_exc()}")
+                sys.exit(1)
         
         try:
             self.storage = StorageManager(self.storage_type, self.output_dir)

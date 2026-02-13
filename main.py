@@ -34,10 +34,19 @@ def main():
     parser.add_argument("--min-quality-score", type=int, default=20, help="最低质量分数（默认: 20，低于此分数的笔记将被跳过）")
     parser.add_argument("--static-comments", action="store_true", help="使用静态评论采集数量（关闭动态调整）")
     
+    # 浏览器控制参数
+    parser.add_argument("--new-browser", action="store_true", help="启动新浏览器实例（不接管现有浏览器）")
+    parser.add_argument("--headless", action="store_true", help="无头模式运行（仅在启动新浏览器时有效）")
+    
     args = parser.parse_args()
     
     # Use the imported DrissionXHSSpider class
-    spider = DrissionXHSSpider(storage_type=args.storage, output_dir=args.output)
+    spider = DrissionXHSSpider(
+        storage_type=args.storage, 
+        output_dir=args.output,
+        takeover=not args.new_browser,
+        headless=args.headless
+    )
     keywords = args.keywords if args.keywords else ["悉尼咖啡"]
     
     logger.info(f"📦 存储格式: {args.storage.upper()}")

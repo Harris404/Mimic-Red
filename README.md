@@ -45,9 +45,11 @@ pip install -r requirements-lock.txt
 pip install -r requirements.txt
 ```
 
-### 2. 启动 Chrome（调试模式）
+### 2. 启动方式
 
-你需要启动一个开启远程调试端口（9222）的 Chrome 浏览器，并手动登录小红书。
+#### 方式一：接管模式（推荐本地调试）
+
+你需要先启动一个开启远程调试端口（9222）的 Chrome 浏览器，手动登录小红书，然后运行爬虫接管它。
 
 **Mac/Linux:**
 ```bash
@@ -56,9 +58,23 @@ chmod +x start_chrome.sh
 ```
 
 **Windows:**
-双击运行 `start_chrome.bat` 脚本即可。脚本会自动查找 Chrome 安装路径并开启调试端口。
+双击运行 `start_chrome.bat` 脚本即可。
 
 > **⚠️ 重要**：启动后会自动打开小红书网站，请扫码登录。登录成功后，**不要关闭浏览器窗口**。
+
+#### 方式二：独立浏览器模式（支持无头模式）
+
+程序会自动启动一个新的 Chrome 浏览器实例，支持无头模式（Headless），适合服务器部署。
+
+```bash
+# 有头模式（首次运行需扫码登录）
+python main.py --new-browser -k "测试"
+
+# 无头模式（登录后使用，适合服务器）
+python main.py --new-browser --headless -k "测试"
+```
+
+> **💡 提示**：首次使用无头模式前，请先在本地运行一次有头模式并扫码登录。登录状态会自动保存到 `browser_data` 目录中，后续直接将该目录上传到服务器即可免登录运行。
 
 ### 3. 运行爬虫
 
@@ -91,6 +107,8 @@ python main.py \
 | `--daily-limit` | `-d` | 每日总上限 | `-d 100` |
 | `--storage` | `-s` | 存储格式 | `-s csv` |
 | `--min-likes` | | 最少点赞数 | `--min-likes 100` |
+| `--new-browser` | | 启动新浏览器实例 | `--new-browser` |
+| `--headless` | | 无头模式（需配合 --new-browser） | `--new-browser --headless` |
 
 完整参数列表和使用示例见 [使用说明.md](./使用说明.md)。
 
