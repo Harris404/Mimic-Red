@@ -276,54 +276,76 @@ class DrissionXHSSpider:
             logger.debug(f"数值转换失败: {value} -> {e}")
             return 0
 
-    def search_notes(self, keyword: str, max_count: int = 20) -> List[Dict]:
-        """搜索列表 - 提取带 xsec_token 的链接"""
+    def search_notes(self, keyword: str, max_count: int = 20, min_likes: int = 0) -> List[Dict]:
+        """搜索列表 - 提取带 xsec_token 的链接，并在列表阶段过滤点赞数"""
         logger.info(f"🔍 搜索: {keyword}")
+        if min_likes > 0:
+            logger.info(f"   🔽 过滤条件: 点赞数 ≥ {min_likes}")
         
         from urllib.parse import quote
         self.page.get(f'https://www.xiaohongshu.com/search_result?keyword={quote(keyword)}&source=web_search_result_notes')
         time.sleep(3)
         
         collected = []
-        seen_ids = set()  # 本次搜索的去重
+        seen_ids = set()
         page_num = 1
+        filtered_count = 0
         
         while len(collected) < max_count and page_num <= 8:
-            # 提取笔记卡片信息 - 关键：获取带 xsec_token 的 search_result 链接
             js_extract = """
             return (function() {
                 const items = document.querySelectorAll('section.note-item');
                 const results = [];
                 
                 items.forEach((item, index) => {
-                    // 优先获取带 xsec_token 的 search_result 链接（反爬必要）
                     const searchLink = item.querySelector('a[href*="/search_result/"]');
                     const exploreLink = item.querySelector('a[href*="/explore/"]');
                     
                     if (!searchLink && !exploreLink) return;
                     
-                    // 优先使用 search_result 链接（带 xsec_token）
                     const primaryLink = searchLink || exploreLink;
                     const href = primaryLink.getAttribute('href');
                     const exploreHref = exploreLink ? exploreLink.getAttribute('href') : null;
                     
-                    // 提取标题
                     let title = '';
                     const titleEl = item.querySelector('.title, .note-title, [class*="title"]');
                     if (titleEl) title = titleEl.innerText;
                     if (!title) title = (item.innerText || '').split('\\n')[0];
                     
-                    // 提取作者
                     let author = '';
                     const authorEl = item.querySelector('.author, .nickname, [class*="name"]');
                     if (authorEl) author = authorEl.innerText;
+                    
+                    let likeCount = 0;
+                    const likeSelectors = [
+                        '.like-count',
+                        '.like-wrapper span',
+                        '[class*="like"] span',
+                        'span[class*="count"]',
+                        '.footer-container span'
+                    ];
+                    
+                    for (const selector of likeSelectors) {
+                        const likeEl = item.querySelector(selector);
+                        if (likeEl && likeEl.innerText) {
+                            const likeText = likeEl.innerText.trim();
+                            if (likeText.includes('万')) {
+                                likeCount = Math.round(parseFloat(likeText.replace('万', '')) * 10000);
+                                break;
+                            } else if (/^[0-9]+$/.test(likeText)) {
+                                likeCount = parseInt(likeText);
+                                break;
+                            }
+                        }
+                    }
                     
                     results.push({
                         index: index,
                         href: href,
                         exploreHref: exploreHref,
                         title: title.substring(0, 100),
-                        author: author
+                        author: author,
+                        likeCount: likeCount
                     });
                 });
                 return JSON.stringify(results);
@@ -337,12 +359,19 @@ class DrissionXHSSpider:
                     new_this_round = 0
                     for item in items:
                         href = item.get('href', '')
-                        # 从 href 提取 note_id（兼容 explore 和 search_result 格式）
                         note_id = href.split('/')[-1].split('?')[0]
+                        
                         if note_id and note_id not in seen_ids:
                             seen_ids.add(note_id)
+                            
                             if not self.deduplicator.is_duplicate(note_id):
-                                # 构建完整 URL（优先带 xsec_token 的 search_result）
+                                like_count = item.get('likeCount', 0)
+                                
+                                if min_likes > 0 and like_count < min_likes:
+                                    filtered_count += 1
+                                    logger.debug(f"   ⏭️ 列表过滤: {item['title'][:30]}... (❤️{like_count}<{min_likes})")
+                                    continue
+                                
                                 full_url = f"https://www.xiaohongshu.com{href}" if href.startswith('/') else href
                                 collected.append({
                                     'note_id': note_id,
@@ -350,10 +379,14 @@ class DrissionXHSSpider:
                                     'author_name': item['author'],
                                     'url': full_url,
                                     'explore_url': f"https://www.xiaohongshu.com{item['exploreHref']}" if item.get('exploreHref') else None,
+                                    'preview_like_count': like_count,
                                 })
                                 new_this_round += 1
+                    
                     if new_this_round > 0:
                         logger.info(f"   📊 第{page_num}轮收集: +{new_this_round} 条 (总计: {len(collected)})")
+                    if filtered_count > 0 and page_num == 1:
+                        logger.info(f"   🔽 已过滤低互动笔记: {filtered_count} 条")
             except Exception as e:
                 logger.debug(f"提取异常: {e}")
             
@@ -520,9 +553,8 @@ class DrissionXHSSpider:
         
         # 滚动加载评论（多次渐进滚动，尝试多种滚动容器）
         try:
-            for scroll_pos in [600, 1200, 1800, 2500, 3500]:
+            for scroll_pos in [800, 1600, 2400, 3500, 4800, 6200, 7800, 9500]:
                 tab.run_js(f"""
-                    // 尝试多种可能的滚动容器
                     const scrollers = [
                         document.querySelector('.note-scroller'),
                         document.querySelector('.note-container'),
@@ -537,10 +569,9 @@ class DrissionXHSSpider:
                             break;
                         }}
                     }}
-                    // 同时尝试 window 滚动
                     window.scrollTo(0, {scroll_pos});
                 """)
-                time.sleep(random.uniform(1.0, 2.0))
+                time.sleep(random.uniform(1.2, 2.0))
         except Exception as e:
             logger.debug(f"滚动加载评论失败: {e}")
 
@@ -808,18 +839,28 @@ class DrissionXHSSpider:
             full_note['author_id'] = user_info.get('userId', '')
             full_note['author_name'] = user_info.get('nickname', full_note.get('author_name', ''))
         
-        # 评论后处理：质量筛选 + 生成唯一ID
+        from xhs_utils.content_filter import ContentQualityFilter
+        
+        quality_info = ContentQualityFilter.classify_note(full_note)
+        
+        full_note['quality_score'] = quality_info['quality_score']
+        full_note['content_category'] = quality_info['category']
+        
+        logger.info(f"      📊 内容质量: {quality_info['category']} (评分{quality_info['quality_score']}) - {quality_info['reason']}")
+        
         if comments:
-            # 按价值排序：优先长评论和高赞评论
-            comments_sorted = sorted(comments, key=lambda c: (len(c.get('content', '')), c.get('like_count', 0)), reverse=True)
-            # 保留前50条最有价值的（避免过多低质量评论）
-            comments = comments_sorted[:50]
+            comment_target = quality_info.get('comment_target', 50)
             
-            # 为每条评论生成唯一ID
-            for idx, c in enumerate(comments):
+            filtered_comments, stats = ContentQualityFilter.filter_comments(comments, comment_target)
+            
+            logger.info(f"      💬 评论过滤: {stats['total']}条 → 保留{stats['kept']}条 (过滤{stats['filtered']}条)")
+            
+            for idx, c in enumerate(filtered_comments):
                 if not c.get('comment_id'):
                     content_hash = hashlib.md5(f"{note_id}_{c.get('content', '')}_{idx}".encode()).hexdigest()[:12]
                     c['comment_id'] = f"{note_id}_{content_hash}"
+            
+            comments = filtered_comments
         
         full_note['comments_data'] = comments
         full_note['full_text'] = f"{full_note['title']} {full_note['desc']} {' '.join(full_note['tags'])}"
@@ -939,7 +980,7 @@ class DrissionXHSSpider:
                 self.page.get('https://www.xiaohongshu.com')
                 time.sleep(5)
             
-            notes = self.search_notes(kw, limit)
+            notes = self.search_notes(kw, limit, min_likes)
             
             if not notes:
                 self._consecutive_failures += 1
@@ -971,13 +1012,6 @@ class DrissionXHSSpider:
                     continue
                 
                 if full_note and self.storage:
-                    # 最少点赞过滤（减少无效请求）
-                    liked = full_note.get('liked_count', 0)
-                    if min_likes > 0 and liked < min_likes:
-                        logger.debug(f"      ⏭️ 点赞{liked}<{min_likes}，跳过低互动笔记")
-                        continue
-                    
-                    # 记录关键词来源
                     full_note['keyword_source'] = kw
                     
                     storage_note = self._to_storage_note(full_note)
@@ -989,12 +1023,12 @@ class DrissionXHSSpider:
                     kw_note_count += 1
                     desc_len = len(full_note.get('desc', ''))
                     comment_cnt = len(full_note.get('comments_data', []))
+                    liked = full_note.get('liked_count', 0)
                     if desc_len > 0:
                         self._consecutive_failures = 0
                         logger.info(f"      ✅ 正文: {desc_len}字 | ❤️{liked} | 💬{comment_cnt}条")
                     else:
                         self._consecutive_failures += 1
-                        comment_cnt = len(full_note.get('comments_data', []))
                         logger.warning(f"      ⚠️ 未获取到正文 | 💬{comment_cnt}条评论")
                 else:
                     self._consecutive_failures += 1
