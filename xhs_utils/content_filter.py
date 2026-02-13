@@ -47,61 +47,102 @@ class ContentQualityFilter:
         
         full_text = f"{title} {desc} {' '.join(tags)}"
         
-        quality_score = 50
+        quality_score = 0  # 从0开始，需要主动得分
         category = '日常'
         reason = []
         
         high_keyword_count = sum(1 for kw in cls.HIGH_QUALITY_KEYWORDS if kw in full_text)
         low_keyword_count = sum(1 for kw in cls.LOW_QUALITY_KEYWORDS if kw in full_text)
         
-        if high_keyword_count >= 2:
-            quality_score += 25
+        # 高价值内容识别（必须有高质量关键词才加分）
+        if high_keyword_count >= 3:
+            quality_score += 40
             category = '攻略' if any(kw in full_text for kw in ['攻略', '经验', '总结', '详解']) else '讨论'
             reason.append(f'高价值关键词×{high_keyword_count}')
+        elif high_keyword_count >= 2:
+            quality_score += 25
+            category = '讨论'
+            reason.append(f'高价值关键词×{high_keyword_count}')
+        elif high_keyword_count >= 1:
+            quality_score += 10
         
-        if low_keyword_count >= 2:
-            quality_score -= 25
+        # 低价值内容识别（强力扣分）
+        if low_keyword_count >= 3:
+            quality_score -= 40
             category = '自拍'
             reason.append(f'低价值关键词×{low_keyword_count}')
+        elif low_keyword_count >= 2:
+            quality_score -= 30
+            category = '自拍'
+            reason.append(f'低价值关键词×{low_keyword_count}')
+        elif low_keyword_count >= 1:
+            quality_score -= 15
         
+        # 文本长度（长文本更可能是干货）
         desc_len = len(desc)
-        if desc_len >= 500:
+        if desc_len >= 800:
+            quality_score += 25
+            reason.append(f'长文本({desc_len}字)')
+        elif desc_len >= 500:
             quality_score += 15
             reason.append(f'长文本({desc_len}字)')
         elif desc_len >= 200:
             quality_score += 5
         elif desc_len < 50:
-            quality_score -= 20
+            quality_score -= 25
             reason.append(f'短文本({desc_len}字)')
         
+        # 高讨论度（评论/点赞比例高说明有讨论价值）
         if comment_count > 0 and liked_count > 0:
             engagement_ratio = comment_count / liked_count
-            if engagement_ratio > 0.1:
+            if engagement_ratio > 0.15:
+                quality_score += 15
+                reason.append(f'高讨论度(评论率{engagement_ratio:.1%})')
+            elif engagement_ratio > 0.1:
                 quality_score += 10
                 reason.append(f'高讨论度(评论率{engagement_ratio:.1%})')
         
+        # 相关标签（强加分）
         if any(tag in ['留学', '澳洲留学', 'UQ', '昆士兰大学', '布里斯班'] for tag in tags):
-            quality_score += 10
+            quality_score += 15
             reason.append('相关标签')
         
+        # 疑问句（求助类通常有价值）
         if re.search(r'[？?]', title):
-            quality_score += 5
-            category = '讨论'
+            quality_score += 10
+            if category == '日常':  # 如果还没被分类，归为讨论
+                category = '讨论'
             reason.append('疑问句')
         
+        # 连载日常（强力扣分）
         if re.search(r'(第\d+|Day\d+|\d+天)', title):
-            quality_score -= 10
+            quality_score -= 20
             category = '日常'
             reason.append('连载日常')
         
-        comment_target = {
-            '自拍': 30,
-            '日常': 60,
-            '讨论': 120,
-            '攻略': 200
-        }.get(category, 80)
+        # 根据笔记实际评论数动态计算采集目标
+        # 基础比例：攻略80%，讨论60%，日常30%，自拍10%
+        base_ratio = {
+            '攻略': 0.8,
+            '讨论': 0.6,
+            '日常': 0.3,
+            '自拍': 0.1
+        }.get(category, 0.5)
         
-        should_skip = quality_score < 30
+        # 动态评论目标 = 实际评论数 × 基础比例，最少20条，最多500条
+        comment_target = max(20, min(500, int(comment_count * base_ratio)))
+        
+        # 如果评论数很少，使用固定值
+        if comment_count < 30:
+            comment_target = {
+                '攻略': 20,
+                '讨论': 15,
+                '日常': 10,
+                '自拍': 5
+            }.get(category, 10)
+        
+        # 跳过阈值：必须达到20分才保留（从0开始计分）
+        should_skip = quality_score < 20
         
         return {
             'quality_score': max(0, min(100, quality_score)),
