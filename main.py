@@ -290,8 +290,10 @@ class DrissionXHSSpider:
         seen_ids = set()
         page_num = 1
         filtered_count = 0
+        no_new_rounds = 0
+        max_rounds = 25
         
-        while len(collected) < max_count and page_num <= 8:
+        while len(collected) < max_count and page_num <= max_rounds:
             js_extract = """
             return (function() {
                 const items = document.querySelectorAll('section.note-item');
@@ -385,19 +387,52 @@ class DrissionXHSSpider:
                     
                     if new_this_round > 0:
                         logger.info(f"   📊 第{page_num}轮收集: +{new_this_round} 条 (总计: {len(collected)})")
+                        no_new_rounds = 0
+                    else:
+                        no_new_rounds += 1
+                        logger.debug(f"   第{page_num}轮无新笔记")
+                    
                     if filtered_count > 0 and page_num == 1:
                         logger.info(f"   🔽 已过滤低互动笔记: {filtered_count} 条")
             except Exception as e:
                 logger.debug(f"提取异常: {e}")
             
-            if len(collected) >= max_count: break
+            if len(collected) >= max_count:
+                logger.info(f"   ✅ 已收集到目标数量 {max_count} 条，停止搜索")
+                break
             
-            # 模拟人类：随机鼠标移动 + 滚动
-            self._random_mouse_move()
-            self._human_like_scroll('down', random.randint(400, 700))
-            time.sleep(random.uniform(1.5, 3))
+            if no_new_rounds >= 5:
+                logger.warning(f"   ⚠️ 连续{no_new_rounds}轮无新笔记，可能已到达搜索结果底部")
+                break
+            
+            cumulative_scroll = page_num * 1200
+            logger.debug(f"   滚动到位置: {cumulative_scroll}px")
+            
+            self.page.run_js(f"""
+                window.scrollTo({{
+                    top: {cumulative_scroll},
+                    behavior: 'smooth'
+                }});
+            """)
+            
+            time.sleep(random.uniform(2.5, 4.0))
+            
+            self.page.run_js("""
+                window.scrollBy({
+                    top: 300,
+                    behavior: 'smooth'
+                });
+            """)
+            
+            time.sleep(random.uniform(1.5, 2.5))
             page_num += 1
-            
+        
+        if len(collected) < max_count:
+            logger.warning(f"   ⚠️ 仅收集到 {len(collected)}/{max_count} 条笔记")
+            logger.warning(f"   原因: 搜索结果不足 或 过滤条件过严 或 大量历史去重")
+            if filtered_count > 0:
+                logger.warning(f"   提示: 共过滤{filtered_count}条低互动笔记，可降低 --min-likes 参数")
+        
         return collected[:max_count]
 
     def get_note_detail_pure(self, note_info: Dict) -> Optional[Dict]:
